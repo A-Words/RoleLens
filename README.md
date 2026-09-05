@@ -1,0 +1,68 @@
+# RoleLens
+
+个人本地求职工作台。维护有来源、可确认和可编辑的经历库，再根据 JD 生成中文打招呼语与 PDF 简历。
+
+技术栈：Nuxt 4、TypeScript、Nitro、LangGraph.js、LangChain.js、SQLite。
+
+## 启动
+
+推荐 Node.js 24 LTS，在仓库根目录运行：
+
+```powershell
+npm ci
+npx playwright install chromium
+Copy-Item .env.example .env
+```
+
+编辑本机 `.env`，填写 `ROLELENS_API_KEY`、`ROLELENS_MODEL`，需要时设置 `ROLELENS_BASE_URL`。模型必须支持 OpenAI 兼容的 Chat Completions 工具调用与结构化输出。不需要设置 LangSmith，应用不主动开启追踪服务。
+
+```powershell
+npm run dev
+```
+
+打开 [本地工作台](http://127.0.0.1:3000)。没有模型配置时，可以手动录入和确认资料；AI 导入、分析和生成需要配置模型。应用没有内置演示模型或自动降级假结果。
+
+生产运行仍在仓库根目录，保留已安装依赖：
+
+```powershell
+npm run build
+npm start
+```
+
+启动脚本读取本机 `.env` 并绑定 `127.0.0.1`。本产品没有账号认证，不支持公网暴露或多进程部署。
+
+## 使用
+
+1. 在资料库上传文字型 PDF、DOCX、Markdown、TXT（10 MB、60000 字以内），或通过对话补充。导入阶段会把提供的文本发给配置的模型，请先移除无关敏感内容。
+2. 核对类别、标题、正文和“允许用于生成”，确认入库。对话修改已有经历时，选择目标资料；修改也先生成草稿。
+3. 在职位工作台填写公司、职位、JD，开始分析。Agent 调用资料检索与来源工具，展示匹配依据。
+4. 回答追问或跳过。补充中的新事实需要先整理成草稿并确认，再重新分析；不能绕过事实确认。
+5. 审阅生成内容、查看当时的事实版本，编辑后保存，复制招呼语或下载 PDF。手动编辑不会自动再次通过模型核验。下载使用已保存版本。
+
+联系方式类别不进入 JD 分析与生成提示，启用的联系方式由本地加入 PDF。其他事实中的常见邮箱与大陆手机号在生成调用前脱敏；这不等于自动识别所有敏感信息，请核对资料分类与正文。
+
+资料变化会使旧的未完成分析失效，需要重新分析。删除资料使其不再用于后续生成；已有来源、版本历史与简历保留。旧简历绑定生成时的事实快照，可单独删除简历版本。
+
+## 数据与维护
+
+默认 `.data/rolelens.sqlite` 保存领域数据及 LangGraph 检查点，`.data/uploads/` 保存上传文件。可用 `ROLELENS_DATA_DIR` 设置绝对目录。备份前停止应用，再备份整个数据目录；这是本机明文存储。
+
+密钥、`.env`、SQLite 及其 WAL 文件、上传文件、生成文件、测试运行数据均不提交 Git。`.env.example` 仅包含空值和公共默认地址。不要将数据目录改到受版本控制的位置。
+
+图执行记录显示实际检索、来源读取、追问、核验和保存。单会话同时只允许一次执行，生成保存按会话幂等。模型失败时可从检查点重试；资料变更后应新建分析。
+
+## 验证
+
+```powershell
+npm run typecheck
+npm run test
+npm run build
+npm run test:e2e
+npm run format:check
+```
+
+单元与集成测试通过注入模拟模型运行真实 LangGraph。浏览器测试启动独立本地 OpenAI 兼容模拟服务，走真实 LangChain HTTP 请求，使用隔离的 `.qa/` 数据目录，不读取或写入个人资料库。需空闲端口 3100、4318。
+
+模拟测试验证流程、数据边界和 UI，不证明真实模型的生成质量或事实核验能力。真实 API 配置与效果需另行验收。
+
+详细决策见 [PRD](docs/PRD.md)、[架构决策](docs/ADR-001-architecture.md)、[验证记录](docs/verification.md)。
