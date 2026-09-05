@@ -6,21 +6,30 @@
 
 ## 启动
 
-推荐 Node.js 24 LTS，在仓库根目录运行：
-
-```powershell
-npm ci
-npx playwright install chromium
-Copy-Item .env.example .env
-```
-
-编辑本机 `.env`，填写 `ROLELENS_API_KEY`、`ROLELENS_MODEL`，需要时设置 `ROLELENS_BASE_URL`。模型必须支持 OpenAI 兼容的 Chat Completions 工具调用与结构化输出。不需要设置 LangSmith，应用不主动开启追踪服务。
+推荐 Node.js 24 LTS。已有依赖和模型配置时，在仓库根目录直接启动：
 
 ```powershell
 npm run dev
 ```
 
+首次克隆项目时才需要安装依赖；首次配置模型时复制配置示例，不要覆盖已有 `.env`：
+
+```powershell
+npm ci
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+编辑本机 `.env`，填写 `ROLELENS_API_KEY`、`ROLELENS_MODEL`，需要时设置 `ROLELENS_BASE_URL`，然后运行 `npm run dev`。模型必须支持 OpenAI 兼容的 Chat Completions 工具调用与结构化输出。不需要设置 LangSmith，应用不主动开启追踪服务。
+
 打开 [本地工作台](http://127.0.0.1:3000)。没有模型配置时，可以手动录入和确认资料；AI 导入、分析和生成需要配置模型。应用没有内置演示模型或自动降级假结果。
+
+启动网页不需要安装 Chromium。首次导出 PDF 或运行相关测试前，若尚未安装项目所用的 Chromium，再执行：
+
+```powershell
+npx playwright install chromium
+```
+
+依赖安装和浏览器安装都不必在每次启动前重复执行；更新 Playwright 版本后可能需要安装对应的 Chromium。
 
 生产运行仍在仓库根目录，保留已安装依赖：
 

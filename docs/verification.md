@@ -39,4 +39,4 @@
 
 本机未配置真实云端模型，因此未验证实际供应商兼容性、生成质量及事实核验准确率。模拟服务通过真实 LangChain HTTP 适配器和真实 LangGraph 检查点/工具流程验证应用行为，不能作为真实模型效果证明。PDF 使用 Chromium 实际导出并解析；长内容测试验证末尾条目仍存在，截图未做逐页 PDF 人工校对。
 
-Git 提交使用 Conventional Commits，仅在本地提交。首次 1Password 签名失败后，对各次提交使用 `git -c commit.gpgsign=false commit`，未修改全局签名配置。
+Git 提交使用 Conventional Commits，仅在本地提交。首次 1Password 签名失败时曾临时创建未签名提交；随后已通过配置的 1Password SSH 签名器为全部四个实现提交补签，提交哈希随之更新，文件内容不变。未修改全局签名配置。
