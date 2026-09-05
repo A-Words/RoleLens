@@ -1,0 +1,7 @@
+node_modules
+.nuxt
+.output
+.data
+.qa
+package-lock.json
+docs/design-reference.png
