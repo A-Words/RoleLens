@@ -1,27 +1,48 @@
 <script setup lang="ts">
-import { Files, FolderOpen, BriefcaseBusiness, HardDrive } from 'lucide-vue-next'
-const { data: status } = await useFetch<{ configured: boolean; revision: number }>('/api/status')
+const route = useRoute()
+const open = ref(false)
+const items = computed(() => [
+  { label: '资料库', icon: 'i-lucide-folder-open', to: '/', active: route.path === '/' },
+  {
+    label: '职位工作台',
+    icon: 'i-lucide-briefcase-business',
+    to: '/jobs',
+    active: route.path.startsWith('/jobs'),
+  },
+])
 </script>
 <template>
-  <div class="workspace">
-    <aside class="sidebar">
-      <NuxtLink to="/" class="brand"><Files :size="30" /><span>RoleLens</span></NuxtLink>
-      <nav aria-label="主导航">
-        <NuxtLink to="/" :class="{ active: $route.path === '/' }"
-          ><FolderOpen :size="20" />资料库</NuxtLink
-        >
-        <NuxtLink to="/jobs" :class="{ active: $route.path.startsWith('/jobs') }"
-          ><BriefcaseBusiness :size="20" />职位工作台</NuxtLink
-        >
-      </nav>
-      <div class="local"><HardDrive :size="18" /><span>本地工作空间</span></div>
-    </aside>
-    <main>
-      <div v-if="status && !status.configured" class="notice">
-        尚未连接模型。在本机 .env 配置 API
-        密钥和模型后重启，即可整理资料和分析职位。你仍可手动建立档案。
-      </div>
-      <slot />
-    </main>
-  </div>
+  <UDashboardGroup storage-key="rolelens-ui">
+    <UDashboardSidebar
+      v-model:open="open"
+      :default-size="16"
+      :min-size="14"
+      :max-size="22"
+      resizable
+      :ui="{
+        root: 'bg-elevated/40',
+        header: 'border-b border-default',
+        footer: 'border-t border-default',
+      }"
+    >
+      <template #header
+        ><NuxtLink
+          to="/"
+          class="flex items-center gap-2.5 px-2 text-lg font-semibold tracking-tight"
+          aria-label="RoleLens 首页"
+          ><UIcon name="i-lucide-scan-text" class="size-6 text-primary" />RoleLens</NuxtLink
+        ></template
+      >
+      <div class="px-2 pt-5 pb-2 text-xs font-medium text-muted">个人求职工作台</div>
+      <UNavigationMenu :items="items" orientation="vertical" class="w-full" />
+      <template #footer
+        ><div class="flex w-full items-center gap-2 px-2 py-3 text-xs text-muted">
+          <UIcon name="i-lucide-hard-drive" class="size-4" />本地工作空间<UColorModeButton
+            class="ml-auto"
+            size="sm"
+          /></div
+      ></template>
+    </UDashboardSidebar>
+    <slot />
+  </UDashboardGroup>
 </template>

@@ -1,6 +1,10 @@
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-05',
   devtools: { enabled: false },
+  modules: ['@nuxt/ui'],
+  ui: { fonts: false },
+  colorMode: { preference: 'light' },
+  icon: { provider: 'server', serverBundle: { collections: ['lucide'] } },
   css: [
     '@fontsource/noto-sans-sc/400.css',
     '@fontsource/noto-sans-sc/600.css',

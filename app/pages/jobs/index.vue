@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { Plus, BriefcaseBusiness, ArrowUpRight } from 'lucide-vue-next'
-import type { Job } from '#shared/types'
+import { jobInput, type Job } from '#shared/types'
 const { data: jobs } = await useFetch<Job[]>('/api/jobs')
 const { busy, error, act } = useAction()
 const creating = ref(false),
@@ -13,46 +12,85 @@ function create() {
 }
 </script>
 <template>
-  <header class="page-head">
-    <div>
-      <h1>职位工作台</h1>
-      <p>从岗位要求出发，找到最值得讲述的经历。</p>
-    </div>
-    <button class="primary" @click="creating = true"><Plus :size="18" />添加职位</button>
-  </header>
-  <section class="panel">
-    <h2>我的职位</h2>
-    <div v-if="!jobs?.length" class="empty">
-      <BriefcaseBusiness :size="40" />
-      <h3>下一份机会，从这里开始</h3>
-      <p>粘贴一份 JD，让 Agent 帮你准备专属表达。</p>
-      <button @click="creating = true">添加第一个职位</button>
-    </div>
-    <NuxtLink v-for="job in jobs" :key="job.id" :to="`/jobs/${job.id}`" class="job-row"
-      ><div class="row between">
-        <h3>{{ job.title }}</h3>
-        <ArrowUpRight :size="18" />
-      </div>
-      <p>{{ job.company }} · {{ new Date(job.createdAt).toLocaleDateString('zh-CN') }}</p>
-      <p>{{ job.jd.slice(0, 160) }}{{ job.jd.length > 160 ? '…' : '' }}</p></NuxtLink
+  <WorkspacePage title="职位工作台" description="保存感兴趣的岗位，用已有经历准备有针对性的表达。">
+    <template #actions
+      ><UButton label="添加职位" icon="i-lucide-plus" @click="creating = true"
+    /></template>
+    <UEmpty
+      v-if="!jobs?.length"
+      icon="i-lucide-briefcase-business"
+      title="下一份机会，从这里开始"
+      description="粘贴一份 JD，让 Agent 找到相关经历、分析缺口并准备简历。"
+      variant="subtle"
+      class="py-20"
     >
-  </section>
-  <ModalPanel v-if="creating" title="添加职位" @close="creating = false"
-    ><form class="form" @submit.prevent="create">
-      <label>公司<input v-model="form.company" maxlength="120" required /></label
-      ><label>职位名称<input v-model="form.title" maxlength="120" required /></label
-      ><label
-        >职位描述（JD）<textarea
-          v-model="form.jd"
-          rows="9"
-          minlength="10"
-          maxlength="30000"
-          required
-          placeholder="粘贴岗位职责、任职要求和其他相关信息…"
-        />
-      </label>
-      <div v-if="error" class="error" role="alert">{{ error }}</div>
-      <button class="primary" :disabled="busy">保存职位</button>
-    </form></ModalPanel
+      <template #actions
+        ><UButton label="添加第一个职位" icon="i-lucide-plus" @click="creating = true"
+      /></template>
+    </UEmpty>
+    <div v-else class="overflow-hidden rounded-lg border border-default">
+      <div
+        class="flex items-center justify-between border-b border-default bg-elevated/40 px-5 py-3"
+      >
+        <h2 class="text-sm font-medium">已保存职位</h2>
+        <UBadge color="neutral" variant="subtle" :label="String(jobs.length)" />
+      </div>
+      <div class="divide-y divide-default">
+        <NuxtLink
+          v-for="job in jobs"
+          :key="job.id"
+          :to="'/jobs/' + job.id"
+          class="group flex gap-4 p-5 transition-colors hover:bg-elevated/40 sm:p-6"
+        >
+          <div
+            class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+          >
+            <UIcon name="i-lucide-building-2" class="size-5" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <h2 class="font-semibold text-highlighted group-hover:text-primary">{{ job.title }}</h2>
+            <p class="mt-1 text-sm text-muted">{{ job.company }}</p>
+            <p class="mt-3 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-toned">
+              {{ job.jd }}
+            </p>
+            <p class="mt-3 text-xs text-muted">
+              {{ new Date(job.createdAt).toLocaleDateString('zh-CN') }} 保存
+            </p>
+          </div>
+          <UIcon
+            name="i-lucide-arrow-up-right"
+            class="mt-1 size-4 shrink-0 text-dimmed group-hover:text-primary"
+          />
+        </NuxtLink>
+      </div>
+    </div>
+  </WorkspacePage>
+  <ModalPanel
+    v-if="creating"
+    title="添加职位"
+    description="填写公司和职位名称，再粘贴完整的岗位要求。"
+    :busy="busy"
+    @close="creating = false"
   >
+    <UForm :schema="jobInput" :state="form" class="space-y-5" @submit="create">
+      <div class="grid gap-5 sm:grid-cols-2">
+        <UFormField label="公司" name="company" required
+          ><UInput v-model="form.company" class="w-full" maxlength="120"
+        /></UFormField>
+        <UFormField label="职位名称" name="title" required
+          ><UInput v-model="form.title" class="w-full" maxlength="120"
+        /></UFormField>
+      </div>
+      <UFormField label="职位描述（JD）" name="jd" required
+        ><UTextarea
+          v-model="form.jd"
+          class="w-full"
+          :rows="9"
+          maxlength="30000"
+          placeholder="岗位职责、任职要求和其他相关信息…"
+      /></UFormField>
+      <UAlert v-if="error" color="error" :description="error" role="alert" />
+      <UButton type="submit" label="保存职位" :loading="busy" block />
+    </UForm>
+  </ModalPanel>
 </template>

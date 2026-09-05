@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ArrowLeft, Sparkles, MessageSquareText, ListChecks, RotateCcw } from 'lucide-vue-next'
 import type { Fact, Job, Session, Generation, Trace, Resume, Source } from '#shared/types'
 const route = useRoute(),
   jobId = String(route.params.id)
@@ -132,146 +131,254 @@ const traceLabels: Record<string, string> = {
   save_generation: '保存版本',
   error: '执行失败',
 }
+
+const sessionItems = computed(() =>
+  (data.value?.sessions || []).map((s) => ({
+    label: new Date(s.createdAt).toLocaleString('zh-CN') + ' · ' + statusLabels[s.status],
+    value: s.id,
+  })),
+)
+const generationItems = computed(() =>
+  (data.value?.generations || []).map((g) => ({
+    label: new Date(g.createdAt).toLocaleString('zh-CN') + (g.edited ? ' · 已编辑' : ''),
+    value: g.id,
+  })),
+)
+const traceItems = computed(() =>
+  traces.value.map((t) => ({
+    label:
+      (traceLabels[t.event] || t.event) + ' · ' + new Date(t.createdAt).toLocaleTimeString('zh-CN'),
+    content: t.detail,
+    value: String(t.id),
+  })),
+)
+const statusColor = computed(() =>
+  session.value?.status === 'failed'
+    ? 'error'
+    : session.value?.status === 'complete'
+      ? 'success'
+      : 'warning',
+)
 </script>
 <template>
-  <NuxtLink to="/jobs" class="back"><ArrowLeft :size="16" />返回职位列表</NuxtLink>
-  <header class="page-head">
-    <div>
-      <h1>{{ data?.job.title }}</h1>
-      <p>{{ data?.job.company }}</p>
-    </div>
-    <button class="primary" :disabled="busy" @click="start">
-      <Sparkles :size="18" />{{ data?.sessions.length ? '重新分析' : '开始分析' }}
-    </button>
-  </header>
-  <div v-if="error" class="error" role="alert">{{ error }}</div>
-  <div class="split">
-    <div class="stack">
-      <section class="panel">
-        <details>
-          <summary>查看职位描述（JD）</summary>
-          <p style="white-space: pre-wrap; margin-top: 16px">{{ data?.job.jd }}</p>
-        </details>
-      </section>
-      <section v-if="session?.analysis" class="panel">
-        <h2><ListChecks :size="21" />岗位匹配与依据</h2>
-        <article v-for="(r, i) in session.analysis.requirements" :key="i" class="analysis-item">
-          <h3>{{ r.requirement }}</h3>
-          <p>{{ r.assessment }}</p>
-          <span v-if="!r.factIds.length" class="tag">暂无已确认依据</span>
-          <div class="source-links">
-            <button v-for="id in r.factIds" :key="id" @click="viewFact(id)">
-              {{ facts?.find((f) => f.id === id)?.title || '历史事实' }}
-            </button>
-          </div>
-        </article>
-      </section>
-      <div v-if="data?.generations.length" class="row">
-        <label class="full"
-          >生成版本<select v-model="selectedGeneration">
-            <option v-for="g in data.generations" :key="g.id" :value="g.id">
-              {{ new Date(g.createdAt).toLocaleString('zh-CN') }}{{ g.edited ? ' · 已编辑' : '' }}
-            </option>
-          </select></label
-        >
-      </div>
-      <ResumeEditor
-        v-if="generation"
-        :generation="generation"
-        :facts="facts || []"
-        :busy="busy"
-        @save="save"
-        @remove="deleting = true"
-        @source="viewEvidence"
-      />
-      <section v-else-if="!session" class="panel empty">
-        <Sparkles :size="36" />
-        <h3>用你的真实经历回应这个职位</h3>
-        <p>Agent 会检索资料、核对来源，必要时向你追问。<br />请先在资料库确认至少一段相关经历。</p>
-      </section>
-    </div>
-    <div class="stack">
-      <section class="panel">
-        <h2><MessageSquareText :size="21" />分析对话</h2>
-        <label v-if="data?.sessions.length"
-          >分析会话<select v-model="selectedId" :disabled="busy">
-            <option v-for="s in data.sessions" :key="s.id" :value="s.id">
-              {{ new Date(s.createdAt).toLocaleString('zh-CN') }} · {{ statusLabels[s.status] }}
-            </option>
-          </select></label
-        >
-        <p v-if="session" class="meta" style="margin-top: 16px" role="status">
-          {{ statusLabels[session.status] }}
-        </p>
-        <p v-if="busy" class="loading">Agent 正在处理，请稍候…</p>
-        <div v-if="session?.status === 'waiting'">
-          <p>以下问题会帮助我判断哪些经历更适合这个岗位：</p>
-          <ol>
-            <li v-for="q in session.question" :key="q">{{ q }}</li>
-          </ol>
-          <form class="form" @submit.prevent="resume()">
-            <label
-              >你的补充<textarea
-                v-model="answer"
-                rows="5"
-                maxlength="6000"
-                placeholder="可以补充表达偏好；新增事实请先整理入库。"
-              /></label
-            ><button class="primary" :disabled="busy">继续生成</button
-            ><button :disabled="busy" type="button" @click="resume(true)">
-              跳过，使用已确认事实</button
-            ><button
-              v-if="answer.trim()"
-              type="button"
-              class="small ghost"
-              :disabled="busy"
-              @click="draftAnswer"
+  <WorkspacePage :title="data?.job.title || '职位详情'" :description="data?.job.company" back>
+    <template #actions
+      ><UButton
+        :label="data?.sessions.length ? '重新分析' : '开始分析'"
+        icon="i-lucide-sparkles"
+        :loading="busy"
+        @click="start"
+    /></template>
+    <UAlert v-if="error" color="error" title="操作未完成" :description="error" role="alert" />
+    <div class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div class="min-w-0 space-y-6">
+        <UAccordion
+          :items="[
+            { label: '查看职位描述（JD）', content: data?.job.jd, icon: 'i-lucide-file-text' },
+          ]"
+          :ui="{ body: 'whitespace-pre-wrap text-sm leading-7 text-toned' }"
+        />
+        <UCard v-if="session?.analysis">
+          <template #header
+            ><div class="flex items-center gap-2">
+              <UIcon name="i-lucide-list-checks" class="size-5 text-primary" />
+              <h2 class="font-semibold">岗位匹配与依据</h2>
+            </div></template
+          >
+          <div class="divide-y divide-default">
+            <article
+              v-for="(r, i) in session.analysis.requirements"
+              :key="i"
+              class="space-y-3 py-5 first:pt-0 last:pb-0"
             >
-              将新增经历整理为草稿
-            </button>
-            <p class="subtle">确认新事实后，请回到此职位重新分析。</p>
-          </form>
-        </div>
-        <div v-else-if="session?.status === 'failed'">
-          <p class="error">{{ session.error }}</p>
-          <button :disabled="busy" @click="act(() => run())">
-            <RotateCcw :size="16" />从检查点重试
-          </button>
-        </div>
-        <button
-          v-else-if="session && ['ready', 'running'].includes(session.status) && !busy"
-          @click="act(() => run())"
-        >
-          继续执行
-        </button>
-        <p v-else-if="session?.status === 'complete'" class="muted">
-          本次分析已完成。请核对生成内容和来源，按需编辑后使用。
-        </p>
-        <p v-else-if="!session" class="muted">
-          点击「开始分析」，建立这份 JD 与你的经历之间的联系。
-        </p>
-      </section>
-      <section v-if="traces.length" class="panel">
-        <h2>执行记录</h2>
-        <ul class="trace">
-          <li v-for="t in traces" :key="t.id">
-            <details>
-              <summary>
-                {{ traceLabels[t.event] || t.event }}
-                <span class="subtle">{{ new Date(t.createdAt).toLocaleTimeString('zh-CN') }}</span>
-              </summary>
-              <pre>{{ t.detail }}</pre>
-            </details>
-          </li>
-        </ul>
-      </section>
+              <h3 class="text-sm font-medium">{{ r.requirement }}</h3>
+              <p class="text-sm leading-6 text-muted">{{ r.assessment }}</p>
+              <UBadge
+                v-if="!r.factIds.length"
+                color="warning"
+                variant="subtle"
+                label="暂无已确认依据"
+              />
+              <div v-else class="flex flex-wrap gap-2">
+                <UButton
+                  v-for="id in r.factIds"
+                  :key="id"
+                  :label="facts?.find((f) => f.id === id)?.title || '历史事实'"
+                  icon="i-lucide-link"
+                  size="xs"
+                  variant="soft"
+                  @click="viewFact(id)"
+                />
+              </div>
+            </article>
+          </div>
+        </UCard>
+        <UFormField v-if="data?.generations.length" label="生成版本"
+          ><USelect v-model="selectedGeneration" :items="generationItems" class="w-full"
+        /></UFormField>
+        <ResumeEditor
+          v-if="generation"
+          :generation="generation"
+          :facts="facts || []"
+          :busy="busy"
+          @save="save"
+          @remove="deleting = true"
+          @source="viewEvidence"
+        />
+        <UEmpty
+          v-else-if="!session"
+          icon="i-lucide-scan-search"
+          title="用真实经历回应这个职位"
+          description="Agent 会检索已确认资料、分析匹配点，在信息不足时向你追问。"
+          variant="subtle"
+          class="py-16"
+          ><template #actions
+            ><UButton to="/" label="查看我的资料" color="neutral" variant="outline" /></template
+        ></UEmpty>
+        <UEmpty
+          v-else-if="session.status === 'complete'"
+          icon="i-lucide-file-plus-2"
+          title="本次分析已完成"
+          description="可重新分析生成新版本，原始资料会继续保留。"
+          variant="subtle"
+        />
+      </div>
+      <div class="min-w-0 space-y-6">
+        <UCard :ui="{ root: 'bg-elevated/30' }">
+          <template #header
+            ><div class="flex items-center justify-between">
+              <h2 class="flex items-center gap-2 font-semibold">
+                <UIcon name="i-lucide-bot-message-square" class="size-5 text-primary" />分析对话
+              </h2>
+              <UBadge
+                v-if="session"
+                :color="statusColor"
+                variant="subtle"
+                :label="statusLabels[session.status]"
+                role="status"
+              /></div
+          ></template>
+          <div class="space-y-5">
+            <UFormField v-if="data?.sessions.length" label="分析会话"
+              ><USelect v-model="selectedId" :items="sessionItems" :disabled="busy" class="w-full"
+            /></UFormField>
+            <div v-if="busy" class="space-y-3">
+              <p class="text-sm text-muted" role="status">Agent 正在处理，请稍候…</p>
+              <UProgress />
+            </div>
+            <div v-if="session?.status === 'waiting'" class="space-y-5">
+              <p class="text-sm leading-6 text-toned">
+                以下问题会帮助我判断哪些经历更适合这个岗位：
+              </p>
+              <ol class="list-decimal space-y-3 pl-5 text-sm leading-6">
+                <li v-for="q in session.question" :key="q">{{ q }}</li>
+              </ol>
+              <form class="space-y-4" @submit.prevent="resume()">
+                <UFormField label="你的补充" name="answer"
+                  ><UTextarea
+                    id="job-answer"
+                    v-model="answer"
+                    :rows="5"
+                    maxlength="6000"
+                    class="w-full"
+                    placeholder="补充表达偏好；新增事实请先整理入库。"
+                /></UFormField>
+                <UButton
+                  type="submit"
+                  label="继续生成"
+                  icon="i-lucide-arrow-right"
+                  :loading="busy"
+                  block
+                />
+                <UButton
+                  type="button"
+                  label="跳过，使用已确认事实"
+                  color="neutral"
+                  variant="outline"
+                  :disabled="busy"
+                  block
+                  @click="resume(true)"
+                />
+                <UButton
+                  v-if="answer.trim()"
+                  type="button"
+                  label="将新增经历整理为草稿"
+                  variant="link"
+                  :disabled="busy"
+                  block
+                  @click="draftAnswer"
+                />
+                <p class="text-xs leading-5 text-muted">确认新事实后，请回到此职位重新分析。</p>
+              </form>
+            </div>
+            <div v-else-if="session?.status === 'failed'" class="space-y-4">
+              <UAlert color="error" :description="session.error || '执行失败'" /><UButton
+                label="从检查点重试"
+                icon="i-lucide-rotate-ccw"
+                :loading="busy"
+                color="neutral"
+                variant="outline"
+                block
+                @click="act(() => run())"
+              />
+            </div>
+            <UButton
+              v-else-if="session && ['ready', 'running'].includes(session.status) && !busy"
+              label="继续执行"
+              block
+              @click="act(() => run())"
+            />
+            <p v-else-if="session?.status === 'complete'" class="text-sm leading-7 text-muted">
+              本次分析已完成。请核对生成内容和来源，按需编辑后使用。
+            </p>
+            <p v-else-if="!session" class="text-sm leading-7 text-muted">
+              点击「开始分析」，建立这份 JD 与你的经历之间的联系。
+            </p>
+          </div>
+        </UCard>
+        <section v-if="traces.length" class="rounded-lg border border-default p-5">
+          <h2 class="mb-3 text-sm font-semibold">执行记录</h2>
+          <UAccordion
+            :items="traceItems"
+            type="multiple"
+            :ui="{
+              body: 'whitespace-pre-wrap break-words font-mono text-xs leading-6',
+              trigger: 'text-xs',
+            }"
+          />
+        </section>
+      </div>
     </div>
-  </div>
-  <ModalPanel v-if="source" :title="source.name" @close="source = null">
-    <pre>{{ source.text }}</pre>
-  </ModalPanel>
-  <ModalPanel v-if="deleting" title="删除生成版本" @close="deleting = false"
-    ><p>删除当前简历与招呼语版本？原始资料不受影响。</p>
-    <button class="danger" :disabled="busy" @click="remove">确认删除版本</button></ModalPanel
+  </WorkspacePage>
+  <USlideover
+    v-if="source"
+    :open="true"
+    :title="source.name"
+    description="与这段表达关联的确认事实"
+    :ui="{ content: 'sm:max-w-xl' }"
+    @update:open="
+      (value) => {
+        if (!value) source = null
+      }
+    "
+    ><template #body>
+      <pre class="whitespace-pre-wrap break-words font-sans text-sm leading-7">{{
+        source.text
+      }}</pre>
+    </template></USlideover
   >
+  <ModalPanel
+    v-if="deleting"
+    title="删除生成版本"
+    description="删除当前简历与招呼语版本？原始资料不受影响。"
+    :busy="busy"
+    @close="deleting = false"
+    ><div class="flex justify-end gap-3">
+      <UButton label="取消" color="neutral" variant="outline" @click="deleting = false" /><UButton
+        label="确认删除版本"
+        color="error"
+        :loading="busy"
+        @click="remove"
+      /></div
+  ></ModalPanel>
 </template>

@@ -1,15 +1,5 @@
 <script setup lang="ts">
 import {
-  Upload,
-  MessageSquareText,
-  Sparkles,
-  FileCheck2,
-  FolderOpen,
-  FileText,
-  Code2,
-  Plus,
-} from 'lucide-vue-next'
-import {
   categories,
   categoryLabels,
   type Fact,
@@ -22,17 +12,36 @@ const { data: drafts, refresh: refreshDrafts } = await useFetch<Draft[]>('/api/d
 const { busy, error, act } = useAction()
 const category = ref('all'),
   text = ref(''),
-  targetId = ref(''),
+  targetId = ref('new'),
   showImport = ref(false),
   showManual = ref(false)
 const editing = ref<Fact | null>(null),
   source = ref<Source | null>(null),
   history = ref<Fact[] | null>(null),
   deleting = ref<Fact | null>(null)
-const fileInput = ref<HTMLInputElement>()
+const selectedFile = ref<File | null>(null)
+const view = ref('facts')
+const search = ref('')
+const toast = useToast()
+const categoryItems = [
+  { label: '所有类别', value: 'all' },
+  ...categories.map((value) => ({ label: categoryLabels[value], value })),
+]
+const targetItems = computed(() => [
+  { label: '新增经历', value: 'new' },
+  ...(facts.value || []).map((f) => ({ label: '修改：' + f.title, value: f.id })),
+])
+const viewItems = computed(() => [
+  { label: '已确认资料', value: 'facts', badge: facts.value?.length || 0 },
+  { label: '待确认草稿', value: 'drafts', badge: drafts.value?.length || 0 },
+])
 const blank: FactInput = { category: 'project', title: '', content: '', enabled: true }
 const filtered = computed(() =>
-  (facts.value || []).filter((f) => category.value === 'all' || f.category === category.value),
+  (facts.value || []).filter(
+    (f) =>
+      (category.value === 'all' || f.category === category.value) &&
+      (f.title + ' ' + f.content).toLowerCase().includes(search.value.toLowerCase()),
+  ),
 )
 async function refresh() {
   await Promise.all([refreshFacts(), refreshDrafts()])
@@ -41,28 +50,32 @@ function importText() {
   return act(async () => {
     await $fetch('/api/import', {
       method: 'POST',
-      body: { text: text.value, targetId: targetId.value || undefined },
+      body: { text: text.value, targetId: targetId.value === 'new' ? undefined : targetId.value },
     })
     text.value = ''
-    targetId.value = ''
+    targetId.value = 'new'
     await refreshDrafts()
+    view.value = 'drafts'
   })
 }
 function importFile() {
   return act(async () => {
-    const file = fileInput.value?.files?.[0]
+    const file = selectedFile.value
     if (!file) throw new Error('请选择文件')
     const form = new FormData()
     form.append('file', file)
     await $fetch('/api/import', { method: 'POST', body: form })
     showImport.value = false
     await refreshDrafts()
+    view.value = 'drafts'
   })
 }
 function confirmDraft(id: string, value: FactInput) {
   return act(async () => {
     await $fetch(`/api/drafts/${id}/confirm`, { method: 'POST', body: value })
     await refresh()
+    toast.add({ title: '资料已确认入库', color: 'success' })
+    if (!drafts.value?.length) view.value = 'facts'
   })
 }
 function saveEdit(value: FactInput) {
@@ -81,6 +94,7 @@ function manual(value: FactInput) {
     await $fetch('/api/drafts', { method: 'POST', body: value })
     showManual.value = false
     await refreshDrafts()
+    view.value = 'drafts'
   })
 }
 function remove() {
@@ -106,146 +120,348 @@ function viewHistory(id: string) {
 }
 </script>
 <template>
-  <header class="page-head">
-    <div>
-      <h1>个人资料库</h1>
-      <p>整理真实经历，让每一次表达都有依据。</p>
-    </div>
-    <button class="primary" @click="showImport = true"><Upload :size="18" />导入资料</button>
-  </header>
-  <div v-if="error" class="error" role="alert">{{ error }}</div>
-  <div v-if="busy" class="notice" role="status">正在处理，请稍候…</div>
-  <div class="split">
-    <section class="panel">
-      <div class="row between">
-        <h2>已确认资料</h2>
-        <button class="small ghost" @click="showManual = true"><Plus :size="16" />手动录入</button>
+  <WorkspacePage
+    title="个人资料库"
+    description="把真实经历整理为可复用的求职档案，由你确认每一条事实。"
+  >
+    <template #actions
+      ><UButton icon="i-lucide-upload" label="导入资料" @click="showImport = true"
+    /></template>
+    <template #toolbar>
+      <div class="flex w-full flex-wrap items-center gap-3">
+        <UInput
+          v-model="search"
+          icon="i-lucide-search"
+          aria-label="搜索资料"
+          placeholder="搜索项目、技能或经历…"
+          class="w-full sm:max-w-xs"
+        />
+        <USelect v-model="category" :items="categoryItems" aria-label="筛选资料类别" class="w-40" />
+        <UButton
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-plus"
+          label="手动录入"
+          class="sm:ml-auto"
+          @click="showManual = true"
+        />
       </div>
-      <div class="tabs" aria-label="资料类别">
-        <button :class="{ active: category === 'all' }" @click="category = 'all'">全部</button
-        ><button
-          v-for="c in categories"
-          :key="c"
-          :class="{ active: category === c }"
-          @click="category = c"
+    </template>
+    <UAlert
+      v-if="error"
+      role="alert"
+      color="error"
+      variant="subtle"
+      title="操作未完成"
+      :description="error"
+    />
+    <div class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <section class="min-w-0 space-y-5">
+        <UTabs
+          v-model="view"
+          :items="viewItems"
+          :content="false"
+          variant="link"
+          :ui="{ list: 'w-full', trigger: 'flex-1' }"
+        />
+        <template v-if="view === 'facts'">
+          <UEmpty
+            v-if="!filtered.length"
+            icon="i-lucide-folder-open"
+            :title="facts?.length ? '没有找到匹配资料' : '建立你的第一段经历'"
+            :description="
+              facts?.length
+                ? '试试其他关键词或资料类别。'
+                : '导入现有简历，或通过对话整理。只有你确认的事实才会用于生成。'
+            "
+            variant="subtle"
+            class="py-16"
+          >
+            <template #actions
+              ><UButton
+                v-if="!facts?.length"
+                label="手动录入"
+                color="neutral"
+                variant="outline"
+                @click="showManual = true"
+            /></template>
+          </UEmpty>
+          <div
+            v-else
+            class="divide-y divide-default overflow-hidden rounded-lg border border-default"
+          >
+            <article
+              v-for="fact in filtered"
+              :key="fact.id"
+              data-testid="fact-row"
+              class="space-y-4 p-5 sm:p-6"
+            >
+              <div class="flex items-start gap-3">
+                <UIcon
+                  :name="fact.category === 'project' ? 'i-lucide-code-xml' : 'i-lucide-file-text'"
+                  class="mt-1 size-5 shrink-0 text-primary"
+                />
+                <div class="min-w-0 flex-1">
+                  <h2 class="font-semibold text-highlighted">{{ fact.title }}</h2>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <UBadge
+                      color="neutral"
+                      variant="subtle"
+                      :label="categoryLabels[fact.category]"
+                    /><UBadge
+                      v-if="!fact.enabled"
+                      color="warning"
+                      variant="soft"
+                      label="已排除"
+                    /><span class="text-xs text-muted">v{{ fact.version }}</span>
+                  </div>
+                </div>
+                <UButton
+                  icon="i-lucide-pencil"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  label="编辑"
+                  @click="editing = fact"
+                />
+              </div>
+              <p class="whitespace-pre-wrap break-words text-sm leading-7 text-toned">
+                {{ fact.content }}
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <UButton
+                  icon="i-lucide-file-search"
+                  color="neutral"
+                  variant="link"
+                  size="sm"
+                  label="查看来源"
+                  @click="viewSource(fact.sourceId)"
+                />
+                <UButton
+                  icon="i-lucide-history"
+                  color="neutral"
+                  variant="link"
+                  size="sm"
+                  label="版本记录"
+                  @click="viewHistory(fact.id)"
+                />
+                <UButton
+                  icon="i-lucide-trash-2"
+                  color="error"
+                  variant="ghost"
+                  size="sm"
+                  label="删除"
+                  class="ml-auto"
+                  @click="deleting = fact"
+                />
+              </div>
+            </article>
+          </div>
+        </template>
+        <template v-else>
+          <UAlert
+            v-if="drafts?.length"
+            color="info"
+            variant="subtle"
+            icon="i-lucide-file-check-2"
+            title="确认后才会用于生成"
+            description="请核对内容、来源与个人贡献，也可以直接修改草稿。"
+          />
+          <UEmpty
+            v-if="!drafts?.length"
+            icon="i-lucide-inbox"
+            title="没有待确认草稿"
+            description="新导入的资料和对话整理结果会出现在这里。"
+            variant="subtle"
+          />
+          <UCard v-for="draft in drafts" :key="draft.id">
+            <template #header
+              ><div class="flex items-center justify-between gap-3">
+                <h2 class="font-semibold">
+                  {{ draft.targetId ? '更新已有资料' : '新增资料草稿' }}
+                </h2>
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  label="丢弃草稿"
+                  :disabled="busy"
+                  @click="
+                    act(async () => {
+                      await $fetch('/api/drafts/' + draft.id, { method: 'DELETE' })
+                      await refreshDrafts()
+                    })
+                  "
+                /></div
+            ></template>
+            <FactForm
+              :value="draft"
+              submit-label="确认入库"
+              :busy="busy"
+              @save="confirmDraft(draft.id, $event)"
+            />
+          </UCard>
+        </template>
+      </section>
+      <UCard :ui="{ root: 'bg-elevated/30' }">
+        <template #header
+          ><div class="flex items-center gap-2">
+            <UIcon name="i-lucide-sparkles" class="size-5 text-primary" />
+            <h2 class="font-semibold">对话补充</h2>
+          </div></template
         >
-          {{ categoryLabels[c] }}
-        </button>
-      </div>
-      <div v-if="!filtered.length" class="empty">
-        <FolderOpen :size="40" />
-        <h3>从一段真实经历开始</h3>
-        <p>导入简历、项目文档，或在右侧与 Agent 对话。<br />草稿经你确认后，会出现在这里。</p>
-      </div>
-      <article v-for="fact in filtered" :key="fact.id" class="fact-row">
-        <div class="fact-icon">
-          <Code2 v-if="fact.category === 'project'" :size="21" /><FileText v-else :size="20" />
-        </div>
-        <div class="fact-body">
-          <h3>{{ fact.title }}</h3>
-          <p>{{ fact.content }}</p>
-          <div class="meta">
-            <span>{{ categoryLabels[fact.category] }}</span
-            ><span>v{{ fact.version }}</span
-            ><span v-if="!fact.enabled" class="tag">已排除</span
-            ><button class="small ghost" @click="viewSource(fact.sourceId)">查看来源</button>
-          </div>
-          <div class="row">
-            <button class="small" @click="editing = fact">编辑</button
-            ><button class="small ghost" @click="viewHistory(fact.id)">版本记录</button
-            ><button class="small ghost danger" @click="deleting = fact">删除</button>
-          </div>
-        </div>
-      </article>
-    </section>
-    <div class="stack">
-      <section class="panel">
-        <h2><MessageSquareText :size="21" />对话补充</h2>
-        <p class="muted">用自然语言告诉我你的经历或需求，我会帮你整理并生成草稿供你确认。</p>
-        <form class="form" @submit.prevent="importText">
-          <label
-            >补充方式<select v-model="targetId">
-              <option value="">新增经历</option>
-              <option v-for="f in facts" :key="f.id" :value="f.id">修改：{{ f.title }}</option>
-            </select></label
-          ><label
-            ><span class="sr-only">经历描述</span
-            ><textarea
+        <p class="mb-5 text-sm leading-6 text-muted">
+          讲述一段经历，或选择已有资料进行修改。Agent 会先整理为草稿。
+        </p>
+        <form class="space-y-5" @submit.prevent="importText">
+          <UFormField label="补充方式"
+            ><USelect v-model="targetId" :items="targetItems" class="w-full"
+          /></UFormField>
+          <UFormField label="经历描述"
+            ><UTextarea
               v-model="text"
-              aria-label="经历描述"
-              placeholder="介绍一段经历，或告诉我需要修改什么…"
-              rows="5"
+              class="w-full"
+              :rows="7"
               required
               maxlength="60000"
-            /></label
-          ><button class="primary full" :disabled="busy"><Sparkles :size="18" />整理为草稿</button>
+              placeholder="例如：我在这个项目中负责什么，使用了哪些技术，完成了哪些功能…"
+          /></UFormField>
+          <UButton
+            type="submit"
+            icon="i-lucide-sparkles"
+            label="整理为草稿"
+            :loading="busy"
+            block
+          />
         </form>
-      </section>
-      <section class="panel">
-        <h2>
-          <FileCheck2 :size="21" />待确认草稿 <span class="tag">{{ drafts?.length || 0 }}</span>
-        </h2>
-        <p class="muted">以下内容需由你核对，确认后才会用于生成。</p>
-        <p v-if="!drafts?.length" class="subtle">还没有待确认草稿。</p>
-        <article v-for="draft in drafts" :key="draft.id" class="draft">
-          <p v-if="draft.targetId" class="notice">将更新已有资料，确认时检查版本。</p>
-          <FactForm
-            :value="draft"
-            submit-label="确认入库"
-            :busy="busy"
-            @save="confirmDraft(draft.id, $event)"
-          /><button
-            class="small ghost"
-            :disabled="busy"
-            @click="
-              act(async () => {
-                await $fetch(`/api/drafts/${draft.id}`, { method: 'DELETE' })
-                await refreshDrafts()
-              })
-            "
-          >
-            丢弃草稿
-          </button>
-        </article>
-      </section>
+        <template #footer
+          ><p class="flex items-start gap-2 text-xs leading-5 text-muted">
+            <UIcon
+              name="i-lucide-shield-check"
+              class="mt-0.5 size-4 shrink-0"
+            />你始终保有最终确认权。草稿不会自动覆盖经历。
+          </p></template
+        >
+      </UCard>
     </div>
-  </div>
-  <ModalPanel v-if="showImport" title="导入资料" @close="showImport = false"
-    ><p class="muted">
-      支持文字型 PDF、DOCX、Markdown、TXT，最大 10
-      MB。资料将发送到配置的模型提取草稿，请先移除无关敏感内容。
-    </p>
-    <form class="form" @submit.prevent="importFile">
-      <input
-        ref="fileInput"
-        aria-label="资料文件"
-        type="file"
-        accept=".pdf,.docx,.md,.txt"
-        required
+  </WorkspacePage>
+  <ModalPanel
+    v-if="showImport"
+    title="导入资料"
+    description="上传现有简历或项目文档，整理为待确认草稿。"
+    :busy="busy"
+    @close="showImport = false"
+  >
+    <form class="space-y-5" @submit.prevent="importFile">
+      <UFormField label="资料文件"
+        ><UFileUpload
+          v-model="selectedFile"
+          accept=".pdf,.docx,.md,.txt"
+          label="选择文件或拖放到这里"
+          description="文字型 PDF、DOCX、Markdown、TXT · 最大 10 MB"
+          :disabled="busy"
+      /></UFormField>
+      <UAlert
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-info"
+        description="资料文本将发送到配置的模型，请先移除无关敏感内容。扫描件请改用文字资料。"
       />
-      <div v-if="error" class="error">{{ error }}</div>
-      <button class="primary" :disabled="busy">{{ busy ? '正在整理…' : '上传并整理' }}</button>
-    </form></ModalPanel
-  >
-  <ModalPanel v-if="showManual" title="手动录入" @close="showManual = false"
-    ><FactForm :value="blank" submit-label="保存为草稿" :busy="busy" @save="manual"
-  /></ModalPanel>
-  <ModalPanel v-if="editing" title="编辑资料" @close="editing = null"
-    ><div v-if="error" class="error">{{ error }}</div>
-    <FactForm :value="editing" submit-label="保存修改" :busy="busy" @save="saveEdit"
-  /></ModalPanel>
-  <ModalPanel v-if="source" :title="source.name" @close="source = null">
-    <pre>{{ source.text }}</pre>
+      <UAlert v-if="error" color="error" :description="error" />
+      <UButton
+        type="submit"
+        label="上传并整理"
+        icon="i-lucide-upload"
+        :loading="busy"
+        :disabled="!selectedFile"
+        block
+      />
+    </form>
   </ModalPanel>
-  <ModalPanel v-if="history" title="版本记录" @close="history = null"
-    ><article v-for="f in history" :key="f.version" class="draft">
-      <h3>v{{ f.version }} · {{ f.title }}</h3>
-      <p class="subtle">{{ f.updatedAt }}</p>
-      <pre>{{ f.content }}</pre>
-    </article></ModalPanel
+  <ModalPanel
+    v-if="showManual"
+    title="手动录入"
+    description="先保存草稿，再核对并确认入库。"
+    :busy="busy"
+    @close="showManual = false"
+    ><UAlert v-if="error" color="error" :description="error" class="mb-4" /><FactForm
+      :value="blank"
+      submit-label="保存为草稿"
+      :busy="busy"
+      @save="manual"
+  /></ModalPanel>
+  <ModalPanel
+    v-if="editing"
+    title="编辑资料"
+    description="保存将建立新的资料版本。"
+    :busy="busy"
+    @close="editing = null"
+    ><UAlert v-if="error" color="error" :description="error" class="mb-4" /><FactForm
+      :value="editing"
+      submit-label="保存修改"
+      :busy="busy"
+      @save="saveEdit"
+  /></ModalPanel>
+  <USlideover
+    v-if="source"
+    :open="true"
+    :title="source.name"
+    description="本机保存的原始来源"
+    :ui="{ content: 'sm:max-w-xl' }"
+    @update:open="
+      (value) => {
+        if (!value) source = null
+      }
+    "
+    ><template #body>
+      <pre class="whitespace-pre-wrap break-words font-sans text-sm leading-7">{{
+        source.text
+      }}</pre>
+    </template></USlideover
   >
-  <ModalPanel v-if="deleting" title="删除资料" @close="deleting = null"
-    ><p>删除「{{ deleting.title }}」后，后续生成不再使用。已有简历、来源材料和历史版本仍保留。</p>
-    <button class="danger" :disabled="busy" @click="remove">确认删除</button></ModalPanel
+  <USlideover
+    v-if="history"
+    :open="true"
+    title="版本记录"
+    description="查看这条资料的历次确认内容。"
+    :ui="{ content: 'sm:max-w-xl' }"
+    @update:open="
+      (value) => {
+        if (!value) history = null
+      }
+    "
+    ><template #body
+      ><div class="space-y-6">
+        <article
+          v-for="f in history"
+          :key="f.version"
+          class="space-y-3 border-b border-default pb-6"
+        >
+          <div class="flex gap-2">
+            <UBadge color="neutral" :label="'v' + f.version" />
+            <h3 class="font-medium">{{ f.title }}</h3>
+          </div>
+          <p class="text-xs text-muted">{{ new Date(f.updatedAt).toLocaleString('zh-CN') }}</p>
+          <p class="whitespace-pre-wrap break-words text-sm leading-7">{{ f.content }}</p>
+        </article>
+      </div></template
+    ></USlideover
   >
+  <ModalPanel
+    v-if="deleting"
+    title="删除资料"
+    :description="
+      '删除「' + deleting.title + '」后，后续生成不再使用。已有简历、来源和历史版本仍保留。'
+    "
+    :busy="busy"
+    @close="deleting = null"
+    ><div class="flex justify-end gap-3">
+      <UButton
+        label="取消"
+        color="neutral"
+        variant="outline"
+        :disabled="busy"
+        @click="deleting = null"
+      /><UButton label="确认删除" color="error" :loading="busy" @click="remove" /></div
+  ></ModalPanel>
 </template>
