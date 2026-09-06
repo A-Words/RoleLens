@@ -27,6 +27,7 @@ import {
 } from '../../shared/types'
 import { AppError, type Store } from './store'
 import { redact, systemRules, type ModelPort } from './model'
+import { verificationIssues } from '../../shared/verification'
 
 const State = Annotation.Root({
   sessionId: Annotation<string>(),
@@ -45,7 +46,12 @@ const State = Annotation.Root({
   resume: Annotation<Resume>(),
 })
 const running = new Set<string>()
-const safeFact = (f: Fact) => ({ ...f, title: redact(f.title), content: redact(f.content) })
+const safeFact = (f: Fact) => ({
+  ...f,
+  title: redact(f.title),
+  // Source-local labels are not globally unique citation identifiers.
+  content: redact(f.content).replace(/事实\s*ID\s*[:：]\s*[A-Za-z][A-Za-z0-9-]*[。.;；]?\s*/gi, ''),
+})
 export function assertReferences(resume: Resume, facts: Fact[]) {
   const allowed = new Set(facts.map((f) => f.id))
   const styles = new Set(resume.greetings.map((g) => g.style))
@@ -67,7 +73,11 @@ export function createAgent(store: Store, model: ModelPort) {
     current(state)
     return store
       .eligible()
-      .filter((f) => state.factIds.includes(f.id))
+      .filter(
+        (f) =>
+          state.factIds.includes(f.id) ||
+          ['personal', 'education', 'preference'].includes(f.category),
+      )
       .map(safeFact)
   }
   function retrievalTools(state: typeof State.State) {
@@ -93,7 +103,11 @@ export function createAgent(store: Store, model: ModelPort) {
         async ({ factId }) => {
           current(state)
           const fact = store.eligible().find((f) => f.id === factId)
-          if (!fact || ![...state.factIds, ...found].includes(factId))
+          if (
+            !fact ||
+            (!['personal', 'education', 'preference'].includes(fact.category) &&
+              ![...state.factIds, ...found].includes(factId))
+          )
             return '请先检索此事实；不可读取未检索或被排除的资料。'
           sources.push(fact.sourceId)
           const s = store.getSource(fact.sourceId)
@@ -101,7 +115,7 @@ export function createAgent(store: Store, model: ModelPort) {
           return JSON.stringify({
             sourceId: s.id,
             name: redact(s.name),
-            confirmedExcerpt: redact(fact.content),
+            confirmedExcerpt: safeFact(fact).content,
             factId,
           })
         },
@@ -174,7 +188,7 @@ export function createAgent(store: Store, model: ModelPort) {
         jd: store.job(s.jobId).jd,
         facts,
         instruction:
-          '逐项分析要求。factIds 必须原样复制 facts 中的 id，不得使用 sourceId、标题、序号或自行生成 ID；不匹配时为空。贡献不清、指标缺失或矛盾时提出至多五个关键问题；不强迫所有经历必须有量化指标。',
+          '逐项分析要求。factIds 必须原样复制 facts 中的 id，不得使用 sourceId、标题、正文编号或自行生成 ID；不匹配时为空。没有依据时写“本次资料未找到依据”，不得断言用户没有提供。贡献不清、指标缺失或矛盾时提出至多五个关键问题；不强迫所有经历必须有量化指标。',
       }
       let analysis: Analysis | undefined
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -224,8 +238,10 @@ export function createAgent(store: Store, model: ModelPort) {
         facts,
         analysis: state.analysis,
         clarification: redact(state.answer || ''),
+        correctionIssues: verificationIssues(store.traces(s.id)),
+        previousDraft: state.resume || null,
         instruction:
-          '仅使用 facts 的已确认事实；clarification 只用于选择和表达偏好，其中新增经历不能写入。headline 只写求职方向，不添加个人能力声明；每个条目与招呼语引用支撑它的 factIds。标题不得增加未经确认的任职或数字。输出三个不同风格招呼语，各不超过150字。简历目标1至2页，优先相关经历。',
+          '仅使用 facts 的已确认事实；clarification 只用于选择和表达偏好，其中新增经历不能写入。若有 correctionIssues，逐条修正 previousDraft 中的问题，删去无依据措辞，保留有依据的内容。headline 只写求职方向，不添加个人能力声明；每个条目与招呼语引用支撑它的 factIds，原样使用 facts.id。标题不得增加未经确认的任职或数字。输出三个不同风格招呼语，各不超过150字。简历目标1至2页，优先相关经历。',
       })
       return { resume }
     })
@@ -233,17 +249,17 @@ export function createAgent(store: Store, model: ModelPort) {
       const facts = selected(state)
       assertReferences(state.resume, facts)
       const verdict = await model.structured(
-        z.object({ supported: z.boolean(), issues: z.array(z.string()) }),
+        z.object({ blockingIssues: z.array(z.string()), notes: z.array(z.string()) }),
         'verify_facts',
         {
           facts,
           resume: state.resume,
           instruction:
-            '逐句核对标题、条目和招呼语与其引用事实，任何新增或夸大的能力、时间、贡献、指标都判定不支持。仅岗位方向、礼貌用语无需事实支持。',
+            '逐句核对标题、条目和招呼语与其引用事实。blockingIssues 只列真实新增、夸大、矛盾或引用不支持的问题，每条写明原句、缺失依据和具体修正建议。支持多个被引用事实共同支撑一句话，允许不增加事实的同义改写与概括。已支持、可保留、自我纠正后认为成立的内容，以及纯风格建议只能放 notes；没有阻断问题时 blockingIssues 必须为空。先完成推理再给出最终结论，不能在阻断问题里写“其实支持”。仅岗位方向、礼貌用语无需事实支持。',
         },
       )
       store.trace(state.sessionId, 'verify_facts', verdict)
-      if (!verdict.supported || verdict.issues.length)
+      if (verdict.blockingIssues.length)
         throw new AppError(422, '事实核验未通过，请重新生成；可在执行记录查看原因')
       return {}
     })

@@ -65,7 +65,10 @@ export class FakeModel implements ModelPort {
         })),
       }
     } else if (stage === 'verify_facts')
-      result = { supported: !this.unsupported, issues: this.unsupported ? ['出现无依据指标'] : [] }
+      result = {
+        blockingIssues: this.unsupported ? ['出现无依据指标'] : [],
+        notes: ['其余内容有事实支持，可保留。'],
+      }
     else throw new Error(`Unknown stage ${stage}`)
     return schema.parse(result)
   }

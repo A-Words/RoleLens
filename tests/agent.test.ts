@@ -152,10 +152,34 @@ test('unsupported output is not saved and retry regenerates', async () => {
   model.unsupported = false
   await a.run(s.id)
   expect(model.seen.filter((x) => x.stage === 'generate_resume')).toHaveLength(2)
+  const retryInput = model.seen.filter((x) => x.stage === 'generate_resume')[1]!.data as {
+    correctionIssues: string[]
+    previousDraft: unknown
+  }
+  expect(retryInput.correctionIssues).toEqual(['出现无依据指标'])
+  expect(retryInput.previousDraft).toBeTruthy()
   expect(store.generations(job.id)).toHaveLength(1)
   const content = store.generations(job.id)[0]!.content
   content.sections[0]!.items[0]!.factIds = ['invented']
   expect(() => assertReferences(content, store.eligible())).toThrow('不可用')
+})
+
+test('basic profile is included even without matching JD keywords, respecting exclusions', async () => {
+  const { store, job, model } = setup()
+  for (const [category, content, enabled] of [
+    ['education', '软件工程本科，2028年毕业', true],
+    ['personal', '不应发送的个人信息', false],
+    ['contact', 'private@example.com', true],
+  ] as const) {
+    const fact = { category, content, title: category, enabled }
+    store.confirm(store.draft(fact, store.source('基础档案', content).id).id, fact)
+  }
+  const session = store.createSession(job.id)
+  await createAgent(store, model).run(session.id)
+  const input = JSON.stringify(model.seen.find((s) => s.stage === 'assess_match')!.data)
+  expect(input).toContain('2028年毕业')
+  expect(input).not.toContain('不应发送')
+  expect(input).not.toContain('private@example.com')
 })
 test('conversation extraction and target edits only propose drafts', async () => {
   const { store, model } = setup(),

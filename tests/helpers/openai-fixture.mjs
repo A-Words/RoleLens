@@ -58,7 +58,7 @@ const server = createServer(async (req, res) => {
           factIds: [data.facts[0].id],
         })),
       }
-    else if (name === 'verify_facts') output = { supported: true, issues: [] }
+    else if (name === 'verify_facts') output = { blockingIssues: [], notes: [] }
     else throw new Error(`Unknown fixture tool: ${name}`)
     const message = toolCall
       ? {
