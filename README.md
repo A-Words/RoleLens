@@ -19,7 +19,9 @@ npm ci
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-编辑本机 `.env`，填写 `ROLELENS_API_KEY`、`ROLELENS_MODEL`，需要时设置 `ROLELENS_BASE_URL`，然后运行 `npm run dev`。模型必须支持 OpenAI 兼容的 Chat Completions 工具调用与结构化输出。不需要设置 LangSmith，应用不主动开启追踪服务。
+编辑本机 `.env`，填写 `ROLELENS_API_KEY`、`ROLELENS_MODEL`，需要时设置 `ROLELENS_BASE_URL`，然后运行 `npm run dev`。模型必须支持工具调用与结构化输出。`ROLELENS_API_PROTOCOL` 默认 `chat-completions`；供应商要求 Responses API 时设为 `responses`。BASE_URL 保留到 `/v1`，无需附加 `/responses` 或 `/chat/completions`。修改配置后重启应用。不需要设置 LangSmith，应用不主动开启追踪服务。
+
+例如 OpenCode Go 的 `gpt-5.6-luna` 使用 `responses`，具体模型的端点以[供应商文档](https://opencode.ai/docs/go/)为准。模型列表可访问不代表生成接口可用；协议、模型权限和供应商地区支持均会影响调用。
 
 打开 [本地工作台](http://127.0.0.1:3000)。没有模型配置时，可以手动录入和确认资料；AI 导入、分析和生成需要配置模型。应用没有内置演示模型或自动降级假结果。
 

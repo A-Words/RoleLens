@@ -25,6 +25,7 @@ export default defineConfig({
         PORT: '3100',
         ROLELENS_API_KEY: 'local-test-fixture',
         ROLELENS_MODEL: 'fixture',
+        ROLELENS_API_PROTOCOL: 'chat-completions',
         ROLELENS_BASE_URL: 'http://127.0.0.1:4318/v1',
         ROLELENS_DATA_DIR: resolve('.qa', `e2e-${Date.now()}`),
       },
