@@ -23,7 +23,8 @@ export function createModel(): ModelPort {
     apiKey: process.env.ROLELENS_API_KEY,
     model: process.env.ROLELENS_MODEL,
     configuration: { baseURL: process.env.ROLELENS_BASE_URL || 'https://api.openai.com/v1' },
-    temperature: 0.2,
+    // Responses reasoning models may reject sampling parameters entirely.
+    ...(protocol === 'chat-completions' ? { temperature: 0.2 } : {}),
     maxRetries: 1,
     timeout: 90000,
   })

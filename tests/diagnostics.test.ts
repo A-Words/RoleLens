@@ -5,6 +5,12 @@ import { join } from 'node:path'
 import { describeFailure, reportFailure } from '../server/core/diagnostics'
 
 describe('local diagnostics', () => {
+  it('reports known rejected parameters without exposing arbitrary values', () => {
+    expect(describeFailure({ status: 400, param: 'temperature' }).hint).toContain('temperature')
+    expect(JSON.stringify(describeFailure({ status: 400, param: 'private resume' }))).not.toContain(
+      'private resume',
+    )
+  })
   it('identifies upstream internal errors', () => {
     expect(
       describeFailure(Object.assign(new Error('Internal server error'), { status: 500 })).hint,

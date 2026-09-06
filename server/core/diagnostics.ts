@@ -4,17 +4,36 @@ import { resolve } from 'node:path'
 
 // Allowlisted metadata only: SDK messages/bodies can contain resumes and credentials.
 export function describeFailure(error: unknown) {
-  const chain: { type: string; status?: number; code?: string }[] = []
+  const chain: { type: string; status?: number; code?: string; param?: string }[] = []
   let current = error
   for (let depth = 0; current && depth < 5; depth++) {
     if (typeof current !== 'object') break
-    const e = current as { name?: unknown; status?: unknown; code?: unknown; cause?: unknown }
+    const e = current as {
+      name?: unknown
+      status?: unknown
+      code?: unknown
+      param?: unknown
+      cause?: unknown
+    }
     chain.push({
       type:
         typeof e.name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,60}$/.test(e.name)
           ? e.name
           : 'Error',
       ...(typeof e.status === 'number' ? { status: e.status } : {}),
+      ...(typeof e.param === 'string' &&
+      [
+        'temperature',
+        'top_p',
+        'tools',
+        'tool_choice',
+        'response_format',
+        'model',
+        'max_tokens',
+        'max_output_tokens',
+      ].includes(e.param)
+        ? { param: e.param }
+        : {}),
       ...(typeof e.code === 'string' &&
       /^(?:E[A-Z_]+|invalid_api_key|model_not_found|insufficient_quota|rate_limit_exceeded)$/.test(
         e.code,
@@ -26,6 +45,7 @@ export function describeFailure(error: unknown) {
   }
   const status = chain.find((e) => e.status)?.status
   const types = chain.map((e) => e.type).join(' ')
+  const param = chain.find((e) => e.param)?.param
   const hint =
     status === 401 || status === 403
       ? '模型服务拒绝鉴权，请检查密钥及模型访问权限。'
@@ -34,7 +54,9 @@ export function describeFailure(error: unknown) {
         : status === 404
           ? '模型或 API 路径不存在，请检查模型名称和 BASE_URL。'
           : status === 400
-            ? '模型服务拒绝请求，请检查模型是否支持工具调用及结构化输出。'
+            ? param
+              ? `模型服务拒绝参数 ${param}，请检查该模型的参数支持。`
+              : '模型服务拒绝请求，请检查模型是否支持工具调用及结构化输出。'
             : status && status >= 500
               ? `模型服务返回 ${status}，请稍后重试或检查供应商服务状态。`
               : /Timeout|Connection/.test(types) || chain.some((e) => e.code?.startsWith('E'))

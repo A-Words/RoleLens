@@ -27,6 +27,9 @@ describe('model API protocol', () => {
     vi.stubEnv('ROLELENS_API_PROTOCOL', protocol)
     createModel()
     expect(constructor).toHaveBeenCalledWith(expect.objectContaining({ useResponsesApi: expected }))
+    const options = constructor.mock.calls[0]![0]
+    if (expected) expect(options).not.toHaveProperty('temperature')
+    else expect(options.temperature).toBe(0.2)
   })
   it('rejects an unknown protocol before sending requests', () => {
     setup()
