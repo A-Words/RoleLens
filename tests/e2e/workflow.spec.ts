@@ -43,6 +43,7 @@ test('import → confirmation → JD → interruption → edit → Chinese PDF',
     timeout: 30000,
   })
   await expect(page.getByRole('heading', { name: '专属打招呼语' })).toBeVisible()
+  await page.getByRole('button', { name: /执行记录 ·/ }).click()
   await expect(page.getByText('读取来源', { exact: false }).first()).toBeVisible()
   await page.getByRole('button', { name: '编辑内容', exact: true }).click()
   await page

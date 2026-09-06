@@ -9,6 +9,14 @@ import {
 } from '#shared/types'
 const { data: facts, refresh: refreshFacts } = await useFetch<Fact[]>('/api/facts')
 const { data: drafts, refresh: refreshDrafts } = await useFetch<Draft[]>('/api/drafts')
+const { data: sources, refresh: refreshSources } =
+  await useFetch<Pick<Source, 'id' | 'name'>[]>('/api/sources')
+const route = useRoute()
+const returnJob = computed(() =>
+  typeof route.query.job === 'string' && /^[a-f0-9-]{36}$/.test(route.query.job)
+    ? route.query.job
+    : '',
+)
 const { busy, error, act } = useAction()
 const category = ref('all'),
   text = ref(''),
@@ -20,7 +28,9 @@ const editing = ref<Fact | null>(null),
   history = ref<Fact[] | null>(null),
   deleting = ref<Fact | null>(null)
 const selectedFile = ref<File | null>(null)
-const view = ref('facts')
+const view = ref(route.query.view === 'drafts' ? 'drafts' : 'facts')
+const expandedGroups = ref<string[]>([])
+const expandedFacts = ref<string[]>([])
 const search = ref('')
 const toast = useToast()
 const categoryItems = [
@@ -43,8 +53,30 @@ const filtered = computed(() =>
       (f.title + ' ' + f.content).toLowerCase().includes(search.value.toLowerCase()),
   ),
 )
+const groups = computed(() => {
+  const grouped = new Map<string, Fact[]>()
+  for (const fact of filtered.value)
+    grouped.set(fact.sourceId, [...(grouped.get(fact.sourceId) || []), fact])
+  return [...grouped].map(([id, items]) => ({
+    value: id,
+    label: `${sources.value?.find((s) => s.id === id)?.name || '资料来源'} · ${items.length} 条`,
+    facts: items,
+  }))
+})
+watch(
+  groups,
+  (value) => {
+    expandedGroups.value =
+      search.value || category.value !== 'all'
+        ? value.map((g) => g.value)
+        : value.length === 1 && (value[0]?.facts.length || 0) <= 3
+          ? value.map((g) => g.value)
+          : []
+  },
+  { immediate: true },
+)
 async function refresh() {
-  await Promise.all([refreshFacts(), refreshDrafts()])
+  await Promise.all([refreshFacts(), refreshDrafts(), refreshSources()])
 }
 function importText() {
   return act(async () => {
@@ -148,6 +180,18 @@ function viewHistory(id: string) {
       </div>
     </template>
     <UAlert
+      v-if="returnJob"
+      title="补充当前职位所需资料"
+      description="确认草稿后，返回原职位重新分析，使新事实进入匹配。"
+    />
+    <UButton
+      v-if="returnJob"
+      :to="`/jobs/${returnJob}`"
+      label="返回原职位"
+      icon="i-lucide-arrow-left"
+      variant="outline"
+    />
+    <UAlert
       v-if="error"
       role="alert"
       color="error"
@@ -186,77 +230,90 @@ function viewHistory(id: string) {
                 @click="showManual = true"
             /></template>
           </UEmpty>
-          <div
-            v-else
-            class="divide-y divide-default overflow-hidden rounded-lg border border-default"
-          >
-            <article
-              v-for="fact in filtered"
-              :key="fact.id"
-              data-testid="fact-row"
-              class="space-y-4 p-5 sm:p-6"
-            >
-              <div class="flex items-start gap-3">
-                <UIcon
-                  :name="fact.category === 'project' ? 'i-lucide-code-xml' : 'i-lucide-file-text'"
-                  class="mt-1 size-5 shrink-0 text-primary"
-                />
-                <div class="min-w-0 flex-1">
-                  <h2 class="font-semibold text-highlighted">{{ fact.title }}</h2>
-                  <div class="mt-2 flex flex-wrap gap-2">
-                    <UBadge
-                      color="neutral"
-                      variant="subtle"
-                      :label="categoryLabels[fact.category]"
-                    /><UBadge
-                      v-if="!fact.enabled"
-                      color="warning"
-                      variant="soft"
-                      label="已排除"
-                    /><span class="text-xs text-muted">v{{ fact.version }}</span>
+          <UAccordion v-else v-model="expandedGroups" :items="groups" type="multiple">
+            <template #body="{ item }">
+              <article
+                v-for="fact in item.facts"
+                :key="fact.id"
+                data-testid="fact-row"
+                class="space-y-4 p-5 sm:p-6"
+              >
+                <div class="flex items-start gap-3">
+                  <UIcon
+                    :name="fact.category === 'project' ? 'i-lucide-code-xml' : 'i-lucide-file-text'"
+                    class="mt-1 size-5 shrink-0 text-primary"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <h2 class="font-semibold text-highlighted">{{ fact.title }}</h2>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <UBadge
+                        color="neutral"
+                        variant="subtle"
+                        :label="categoryLabels[fact.category]"
+                      /><UBadge
+                        v-if="!fact.enabled"
+                        color="warning"
+                        variant="soft"
+                        label="已排除"
+                      /><span class="text-xs text-muted">v{{ fact.version }}</span>
+                    </div>
                   </div>
+                  <UButton
+                    icon="i-lucide-pencil"
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    label="编辑"
+                    @click="editing = fact"
+                  />
                 </div>
+                <p
+                  class="whitespace-pre-wrap break-words text-sm leading-7 text-toned"
+                  :class="{ 'line-clamp-3': !expandedFacts.includes(fact.id) }"
+                >
+                  {{ fact.content }}
+                </p>
                 <UButton
-                  icon="i-lucide-pencil"
-                  color="neutral"
-                  variant="ghost"
-                  size="sm"
-                  label="编辑"
-                  @click="editing = fact"
-                />
-              </div>
-              <p class="whitespace-pre-wrap break-words text-sm leading-7 text-toned">
-                {{ fact.content }}
-              </p>
-              <div class="flex flex-wrap items-center gap-2">
-                <UButton
-                  icon="i-lucide-file-search"
-                  color="neutral"
+                  v-if="fact.content.length > 120"
+                  :label="expandedFacts.includes(fact.id) ? '收起正文' : '展开正文'"
                   variant="link"
-                  size="sm"
-                  label="查看来源"
-                  @click="viewSource(fact.sourceId)"
+                  size="xs"
+                  @click="
+                    expandedFacts = expandedFacts.includes(fact.id)
+                      ? expandedFacts.filter((id) => id !== fact.id)
+                      : [...expandedFacts, fact.id]
+                  "
                 />
-                <UButton
-                  icon="i-lucide-history"
-                  color="neutral"
-                  variant="link"
-                  size="sm"
-                  label="版本记录"
-                  @click="viewHistory(fact.id)"
-                />
-                <UButton
-                  icon="i-lucide-trash-2"
-                  color="error"
-                  variant="ghost"
-                  size="sm"
-                  label="删除"
-                  class="ml-auto"
-                  @click="deleting = fact"
-                />
-              </div>
-            </article>
-          </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <UButton
+                    icon="i-lucide-file-search"
+                    color="neutral"
+                    variant="link"
+                    size="sm"
+                    label="查看来源"
+                    @click="viewSource(fact.sourceId)"
+                  />
+                  <UButton
+                    icon="i-lucide-history"
+                    color="neutral"
+                    variant="link"
+                    size="sm"
+                    label="版本记录"
+                    @click="viewHistory(fact.id)"
+                  />
+                  <UButton
+                    icon="i-lucide-trash-2"
+                    color="error"
+                    variant="ghost"
+                    size="sm"
+                    label="删除"
+                    class="ml-auto"
+                    @click="deleting = fact"
+                  />
+                </div>
+              </article>
+            </template>
+          </UAccordion>
         </template>
         <template v-else>
           <UAlert

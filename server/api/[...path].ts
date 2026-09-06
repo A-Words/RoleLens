@@ -32,7 +32,10 @@ export default defineEventHandler(async (event) => {
         return { ok: true }
       }
     }
-    if (parts[0] === 'sources' && method === 'GET' && id) return store.getSource(id)
+    if (parts[0] === 'sources' && method === 'GET') {
+      if (id) return store.getSource(id)
+      return store.db.prepare('SELECT id, name FROM sources ORDER BY createdAt DESC').all()
+    }
     if (parts[0] === 'drafts') {
       if (method === 'GET' && !id) return store.drafts()
       if (method === 'POST' && action === 'confirm')

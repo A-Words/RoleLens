@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Fact, Job, Session, Generation, Trace, Resume, Source } from '#shared/types'
+import { verificationIssues } from '#shared/verification'
 const route = useRoute(),
   jobId = String(route.params.id)
 const { data, refresh } = await useFetch<{
@@ -20,35 +21,41 @@ const session = ref<Session | null>(data.value.sessions[0] || null),
 const generation = computed(() =>
   data.value?.generations.find((g) => g.id === selectedGeneration.value),
 )
+const correctionIssues = computed(() => verificationIssues(traces.value))
 let timer: ReturnType<typeof setInterval> | undefined
 async function poll() {
   if (!selectedId.value) return
-  const detail = await $fetch<{ session: Session; traces: Trace[] }>(
-    `/api/sessions/${selectedId.value}`,
-  )
+  const requestedId = selectedId.value
+  const detail = await $fetch<{ session: Session; traces: Trace[] }>(`/api/sessions/${requestedId}`)
+  if (requestedId !== selectedId.value) return
   session.value = detail.session
   traces.value = detail.traces
 }
+function pollFailure() {
+  error.value = '暂时无法刷新任务状态，请检查本机服务后刷新页面。'
+}
 watch(selectedId, () => {
-  poll().catch(() => {})
+  selectedGeneration.value =
+    data.value?.generations.find((g) => g.sessionId === selectedId.value)?.id || ''
+  traces.value = []
+  poll().catch(pollFailure)
 })
 onMounted(() => {
-  poll().catch(() => {})
+  poll().catch(pollFailure)
+  timer = setInterval(() => {
+    if (busy.value || session.value?.status === 'running') poll().catch(pollFailure)
+  }, 1500)
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 async function run(resumeAnswer?: string) {
-  timer = setInterval(() => {
-    poll().catch(() => {})
-  }, 1500)
   try {
     await $fetch(`/api/sessions/${selectedId.value}/run`, {
       method: 'POST',
       body: { answer: resumeAnswer },
     })
   } finally {
-    if (timer) clearInterval(timer)
     await Promise.all([poll(), refresh(), refreshFacts()])
     selectedGeneration.value =
       data.value?.generations.find((g) => g.sessionId === selectedId.value)?.id ||
@@ -110,7 +117,7 @@ function draftAnswer() {
       method: 'POST',
       body: { text: answer.value, name: '职位追问补充' },
     })
-    await navigateTo('/')
+    await navigateTo({ path: '/', query: { view: 'drafts', job: jobId } })
   })
 }
 const statusLabels: Record<string, string> = {
@@ -312,6 +319,12 @@ const statusColor = computed(() =>
               </form>
             </div>
             <div v-else-if="session?.status === 'failed'" class="space-y-4">
+              <div v-if="correctionIssues.length" class="space-y-2 text-sm">
+                <h3 class="font-semibold">需要修正的内容</h3>
+                <ul class="list-disc space-y-2 pl-5">
+                  <li v-for="issue in correctionIssues" :key="issue">{{ issue }}</li>
+                </ul>
+              </div>
               <UAlert color="error" :description="session.error || '执行失败'" /><UButton
                 label="从检查点重试"
                 icon="i-lucide-rotate-ccw"
@@ -321,6 +334,9 @@ const statusColor = computed(() =>
                 block
                 @click="act(() => run())"
               />
+              <p class="text-xs text-muted">
+                重试会继续当前任务；核验失败时，会根据以上问题修改上一版草稿。顶部“重新分析”会重新检索资料并建立新任务。
+              </p>
             </div>
             <UButton
               v-else-if="session && ['ready', 'running'].includes(session.status) && !busy"
@@ -336,17 +352,18 @@ const statusColor = computed(() =>
             </p>
           </div>
         </UCard>
-        <section v-if="traces.length" class="rounded-lg border border-default p-5">
-          <h2 class="mb-3 text-sm font-semibold">执行记录</h2>
-          <UAccordion
-            :items="traceItems"
-            type="multiple"
-            :ui="{
-              body: 'whitespace-pre-wrap break-words font-mono text-xs leading-6',
-              trigger: 'text-xs',
-            }"
-          />
-        </section>
+        <UAccordion v-if="traces.length" :items="[{ label: `执行记录 · ${traces.length} 条` }]">
+          <template #body>
+            <UAccordion
+              :items="traceItems"
+              type="multiple"
+              :ui="{
+                body: 'whitespace-pre-wrap break-words font-mono text-xs leading-6',
+                trigger: 'text-xs',
+              }"
+            />
+          </template>
+        </UAccordion>
       </div>
     </div>
   </WorkspacePage>
