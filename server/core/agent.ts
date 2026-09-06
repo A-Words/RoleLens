@@ -233,7 +233,28 @@ export function createAgent(store: Store, model: ModelPort) {
       const s = current(state),
         facts = selected(state)
       store.trace(s.id, 'generate', '根据已确认资料起草')
-      const resume = await model.structured(resumeSchema, 'generate_resume', {
+      const references = z.array(z.enum(facts.map((f) => f.id) as [string, ...string[]])).min(1)
+      const generationSchema = resumeSchema.extend({
+        sections: z
+          .array(
+            resumeSchema.shape.sections.element.extend({
+              items: z
+                .array(
+                  resumeSchema.shape.sections.element.shape.items.element.extend({
+                    factIds: references,
+                  }),
+                )
+                .min(1)
+                .max(12),
+            }),
+          )
+          .min(1)
+          .max(10),
+        greetings: z
+          .array(resumeSchema.shape.greetings.element.extend({ factIds: references }))
+          .length(3),
+      })
+      const input = {
         job: store.job(s.jobId),
         facts,
         analysis: state.analysis,
@@ -242,12 +263,48 @@ export function createAgent(store: Store, model: ModelPort) {
         previousDraft: state.resume || null,
         instruction:
           '仅使用 facts 的已确认事实；clarification 只用于选择和表达偏好，其中新增经历不能写入。若有 correctionIssues，逐条修正 previousDraft 中的问题，删去无依据措辞，保留有依据的内容。headline 只写求职方向，不添加个人能力声明；每个条目与招呼语引用支撑它的 factIds，原样使用 facts.id。标题不得增加未经确认的任职或数字。输出三个不同风格招呼语，各不超过150字。简历目标1至2页，优先相关经历。',
-      })
-      return { resume }
+      }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const resume = await model.structured(generationSchema, 'generate_resume', input)
+          assertReferences(resume, facts)
+          return { resume }
+        } catch (e) {
+          if (
+            !(e instanceof z.ZodError) &&
+            !(e instanceof OutputParserException) &&
+            !(e instanceof AppError && e.statusCode === 422)
+          )
+            throw e
+          store.trace(s.id, 'generation_validation', {
+            attempt: attempt + 1,
+            message: '生成结果的格式或资料关联不正确。',
+          })
+          if (attempt === 1)
+            throw new AppError(
+              422,
+              '生成结果的格式或资料关联未通过检查，自动修正未成功。请点击重试；无需修改已确认资料。',
+            )
+          input.instruction +=
+            ' 上一次返回的格式或资料关联无效。重新生成时，每个 factIds 必须从本次 facts.id 的枚举中原样选取，不得使用标题、sourceId、P1 等正文编号；三种招呼语风格不得重复。'
+        }
+      }
+      throw new AppError(422, '生成结果为空，请重试。')
     })
     .addNode('verify', async (state) => {
       const facts = selected(state)
-      assertReferences(state.resume, facts)
+      try {
+        assertReferences(state.resume, facts)
+      } catch (e) {
+        store.trace(state.sessionId, 'generation_validation', {
+          message: '生成结果的资料关联不正确。',
+        })
+        throw new AppError(
+          422,
+          '生成结果的资料关联未通过检查，请点击重试自动修正；无需修改已确认资料。',
+          e,
+        )
+      }
       const verdict = await model.structured(
         z.object({ blockingIssues: z.array(z.string()), notes: z.array(z.string()) }),
         'verify_facts',

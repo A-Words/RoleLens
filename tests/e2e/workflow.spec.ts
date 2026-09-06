@@ -139,3 +139,56 @@ test('local API rejects cross-site mutation and invalid inputs', async ({ reques
     (await request.post('/api/jobs', { data: { company: '', title: '', jd: '' } })).status(),
   ).toBe(400)
 })
+
+test('failure feedback hides stale verification and explains recovery without raw IDs', async ({
+  page,
+  request,
+}) => {
+  const job = await (
+    await request.post('/api/jobs', {
+      data: { company: '反馈测试', title: '前端开发', jd: '需要 Vue 和 TypeScript 项目经验' },
+    })
+  ).json()
+  let message = '生成结果的资料关联未通过检查，请点击重试自动修正；无需修改已确认资料。'
+  const session = () => ({
+    id: 'feedback-session',
+    jobId: job.id,
+    status: 'failed',
+    revision: 1,
+    analysis: null,
+    question: [],
+    error: message,
+    createdAt: new Date().toISOString(),
+  })
+  await page.route(`**/api/jobs/${job.id}`, (route) =>
+    route.fulfill({ json: { job, sessions: [session()], generations: [] } }),
+  )
+  await page.route('**/api/sessions/feedback-session', (route) =>
+    route.fulfill({
+      json: {
+        session: session(),
+        traces: [
+          {
+            id: 1,
+            sessionId: 'feedback-session',
+            event: 'verify_facts',
+            detail: JSON.stringify({
+              blockingIssues: ['指标缺少依据，引用 12345678-1234-1234-1234-123456789012。'],
+            }),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+    }),
+  )
+  await page.goto('/jobs')
+  await page.locator(`a[href="/jobs/${job.id}"]`).click()
+  await expect(page.getByText(/无需修改已确认资料/)).toBeVisible()
+  await expect(page.getByRole('heading', { name: /处表达需要核对/ })).toHaveCount(0)
+  message = '事实核验未通过，请重试'
+  await page.goto('/jobs')
+  await page.locator(`a[href="/jobs/${job.id}"]`).click()
+  await expect(page.getByRole('heading', { name: '有 1 处表达需要核对' })).toBeVisible()
+  await page.getByRole('button', { name: '查看第 1 处核验意见' }).click()
+  await expect(page.getByText('指标缺少依据，引用 对应资料。', { exact: true })).toBeVisible()
+})

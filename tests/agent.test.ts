@@ -141,6 +141,31 @@ test('failed generation resumes from checkpoint without duplicate results', asyn
   await a.run(s.id)
   expect(store.generations(job.id)).toHaveLength(1)
 })
+
+test('generation repairs invalid references before verification and saving', async () => {
+  const { store, job, model } = setup()
+  const session = store.createSession(job.id)
+  const agent = createAgent(store, model)
+  await agent.run(session.id)
+  model.invalidGenerationCount = 1
+  await agent.run(session.id, '')
+  expect(store.session(session.id).status).toBe('complete')
+  expect(model.seen.filter((s) => s.stage === 'generate_resume')).toHaveLength(2)
+  expect(store.generations(job.id)).toHaveLength(1)
+})
+
+test('persistent invalid generation stops safely and manual retry can recover', async () => {
+  const { store, job, model } = setup()
+  const session = store.createSession(job.id)
+  const agent = createAgent(store, model)
+  await agent.run(session.id)
+  model.invalidGenerationCount = 2
+  await expect(agent.run(session.id, '')).rejects.toThrow('无需修改已确认资料')
+  expect(store.generations(job.id)).toHaveLength(0)
+  expect(model.seen.filter((s) => s.stage === 'generate_resume')).toHaveLength(2)
+  await agent.run(session.id)
+  expect(store.generations(job.id)).toHaveLength(1)
+})
 test('unsupported output is not saved and retry regenerates', async () => {
   const { store, job, model } = setup(),
     s = store.createSession(job.id),

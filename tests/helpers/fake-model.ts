@@ -9,6 +9,7 @@ export class FakeModel implements ModelPort {
   failOnce = false
   unsupported = false
   invalidAnalysisCount = 0
+  invalidGenerationCount = 0
   parserFailure = false
   seen: { stage: string; data: unknown }[] = []
   async structured<T>(schema: z.ZodType<T>, stage: string, data: unknown): Promise<T> {
@@ -49,6 +50,7 @@ export class FakeModel implements ModelPort {
         questions: ['是否有已确认的效果指标？没有可以跳过。'],
       }
     else if (stage === 'generate_resume') {
+      const ids = this.invalidGenerationCount-- > 0 ? ['invented'] : [d.facts[0]!.id]
       if (this.failOnce) {
         this.failOnce = false
         throw new Error('simulated timeout')
@@ -61,7 +63,7 @@ export class FakeModel implements ModelPort {
         greetings: ['简洁直接', '项目匹配', '自然交流'].map((style) => ({
           style,
           text: `您好，我有${d.facts[0]!.title}的相关经历，希望进一步交流。`,
-          factIds: [d.facts[0]!.id],
+          factIds: ids,
         })),
       }
     } else if (stage === 'verify_facts')

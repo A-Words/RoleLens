@@ -21,7 +21,13 @@ const session = ref<Session | null>(data.value.sessions[0] || null),
 const generation = computed(() =>
   data.value?.generations.find((g) => g.id === selectedGeneration.value),
 )
-const correctionIssues = computed(() => verificationIssues(traces.value))
+const correctionIssues = computed(() =>
+  session.value?.error?.includes('事实核验')
+    ? verificationIssues(traces.value).map((issue) =>
+        issue.replace(/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/gi, '对应资料'),
+      )
+    : [],
+)
 let timer: ReturnType<typeof setInterval> | undefined
 async function poll() {
   if (!selectedId.value) return
@@ -320,10 +326,20 @@ const statusColor = computed(() =>
             </div>
             <div v-else-if="session?.status === 'failed'" class="space-y-4">
               <div v-if="correctionIssues.length" class="space-y-2 text-sm">
-                <h3 class="font-semibold">需要修正的内容</h3>
-                <ul class="list-disc space-y-2 pl-5">
-                  <li v-for="issue in correctionIssues" :key="issue">{{ issue }}</li>
-                </ul>
+                <h3 class="font-semibold">有 {{ correctionIssues.length }} 处表达需要核对</h3>
+                <p class="text-muted">
+                  部分表达可能超出了资料中的依据。点击下方重试，Agent
+                  会根据核验意见修改草稿；你的原始资料不会改变。
+                </p>
+                <UAccordion
+                  :items="
+                    correctionIssues.map((issue, index) => ({
+                      label: `查看第 ${index + 1} 处核验意见`,
+                      content: issue,
+                    }))
+                  "
+                  :ui="{ body: 'text-sm leading-6 whitespace-pre-wrap' }"
+                />
               </div>
               <UAlert color="error" :description="session.error || '执行失败'" /><UButton
                 label="从检查点重试"
