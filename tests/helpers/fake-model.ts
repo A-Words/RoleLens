@@ -2,14 +2,21 @@ import { AIMessage, type BaseMessage } from '@langchain/core/messages'
 import type { z } from 'zod'
 import type { ModelPort } from '../../server/core/model'
 import type { Fact } from '../../shared/types'
+import { OutputParserException } from '@langchain/core/output_parsers'
 
 // Deterministic fixture, injected by tests only. Production never selects this model.
 export class FakeModel implements ModelPort {
   failOnce = false
   unsupported = false
+  invalidAnalysisCount = 0
+  parserFailure = false
   seen: { stage: string; data: unknown }[] = []
   async structured<T>(schema: z.ZodType<T>, stage: string, data: unknown): Promise<T> {
     this.seen.push({ stage, data })
+    if (stage === 'assess_match' && this.parserFailure) {
+      this.parserFailure = false
+      throw new OutputParserException('Invalid structured output')
+    }
     const d = data as {
       facts: Fact[]
       text: string
@@ -35,7 +42,7 @@ export class FakeModel implements ModelPort {
         requirements: [
           {
             requirement: '相关项目经验',
-            factIds: d.facts.map((f) => f.id),
+            factIds: this.invalidAnalysisCount-- > 0 ? ['invented'] : d.facts.map((f) => f.id),
             assessment: '有已确认的实现经历，效果指标尚未提供。',
           },
         ],

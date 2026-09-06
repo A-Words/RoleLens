@@ -17,6 +17,7 @@ import {
 } from '@langchain/core/messages'
 import { tool, type StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
+import { OutputParserException } from '@langchain/core/output_parsers'
 import {
   analysisSchema,
   resumeSchema,
@@ -159,15 +160,48 @@ export function createAgent(store: Store, model: ModelPort) {
       const { tools } = retrievalTools(state)
       for (const f of facts)
         if (!state.sourceIds.includes(f.sourceId)) await tools[1]!.invoke({ factId: f.id })
-      const analysis = await model.structured(analysisSchema, 'assess_match', {
+      const ids = new Set(facts.map((f) => f.id))
+      const referenceSchema = analysisSchema.extend({
+        requirements: z
+          .array(
+            analysisSchema.shape.requirements.element.extend({
+              factIds: z.array(z.enum(facts.map((f) => f.id) as [string, ...string[]])),
+            }),
+          )
+          .max(20),
+      })
+      const input = {
         jd: store.job(s.jobId).jd,
         facts,
         instruction:
-          '逐项分析要求。factIds 只能来自给出的事实，不匹配时为空。贡献不清、指标缺失或矛盾时提出至多五个关键问题；不强迫所有经历必须有量化指标。',
-      })
-      const ids = new Set(facts.map((f) => f.id))
-      if (analysis.requirements.some((r) => r.factIds.some((id) => !ids.has(id))))
-        throw new AppError(422, '岗位分析引用了未知事实')
+          '逐项分析要求。factIds 必须原样复制 facts 中的 id，不得使用 sourceId、标题、序号或自行生成 ID；不匹配时为空。贡献不清、指标缺失或矛盾时提出至多五个关键问题；不强迫所有经历必须有量化指标。',
+      }
+      let analysis: Analysis | undefined
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          analysis = await model.structured(referenceSchema, 'assess_match', input)
+          if (analysis.requirements.some((r) => r.factIds.some((id) => !ids.has(id))))
+            throw new AppError(422, '岗位分析引用了未知事实')
+          break
+        } catch (e) {
+          // Only repair invalid structured output; transport/authentication errors must propagate.
+          if (
+            !(e instanceof z.ZodError) &&
+            !(e instanceof AppError && e.statusCode === 422) &&
+            !(e instanceof OutputParserException)
+          )
+            throw e
+          if (attempt === 1)
+            throw new AppError(
+              422,
+              '岗位分析返回的格式或事实引用无效，纠正后仍未通过。请从检查点重试。',
+            )
+          store.trace(s.id, 'assess_match', '分析格式或事实引用校验失败，正在纠正一次。')
+          input.instruction +=
+            ' 上次返回格式或引用无效。请重新分析，严格使用给出的事实 id；没有依据的要求使用空 factIds。'
+        }
+      }
+      if (!analysis) throw new AppError(422, '岗位分析未返回结果')
       store.setSession(s.id, 'running', analysis, analysis.questions)
       store.trace(s.id, 'assess_match', analysis)
       return { analysis }

@@ -89,6 +89,37 @@ test('different JD retrieves different facts and excludes contact information', 
   expect(store.generations(job.id)[0]!.content.sections[0]!.items[0]!.text).toContain('Python')
   expect(JSON.stringify(model.seen)).not.toContain('test@example.com')
 })
+
+test('invalid analysis references are repaired once using the allowed IDs', async () => {
+  const { store, job, model } = setup()
+  model.invalidAnalysisCount = 1
+  const session = store.createSession(job.id)
+  await createAgent(store, model).run(session.id)
+  expect(store.session(session.id).status).toBe('waiting')
+  expect(model.seen.filter((s) => s.stage === 'assess_match')).toHaveLength(2)
+})
+
+test('LangChain parser errors also trigger one correction', async () => {
+  const { store, job, model } = setup()
+  model.parserFailure = true
+  const session = store.createSession(job.id)
+  await createAgent(store, model).run(session.id)
+  expect(store.session(session.id).status).toBe('waiting')
+  expect(model.seen.filter((s) => s.stage === 'assess_match')).toHaveLength(2)
+})
+
+test('persistent invalid analysis references stop and can be retried from checkpoint', async () => {
+  const { store, job, model } = setup()
+  model.invalidAnalysisCount = 2
+  const session = store.createSession(job.id)
+  const agent = createAgent(store, model)
+  await expect(agent.run(session.id)).rejects.toThrow('纠正后仍未通过')
+  expect(store.session(session.id).status).toBe('failed')
+  expect(store.generations(job.id)).toHaveLength(0)
+  expect(model.seen.filter((s) => s.stage === 'assess_match')).toHaveLength(2)
+  await agent.run(session.id)
+  expect(store.session(session.id).status).toBe('waiting')
+})
 test('changed or deleted facts invalidate pending checkpoint', async () => {
   const { store, job, model } = setup(),
     s = store.createSession(job.id)
