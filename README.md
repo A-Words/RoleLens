@@ -62,6 +62,14 @@ npm start
 
 ## 验证
 
+### 查看错误
+
+服务端异常会在页面及 F12 的响应中提供错误编号，并在运行 `npm run dev` / `npm start` 的终端输出同编号诊断。日志也保存到数据目录的 `logs/errors-YYYY-MM-DD.jsonl`，默认在 `.data/logs/`。可以用 `Get-Content .data/logs/errors-*.jsonl -Tail 20` 查看最近记录。
+
+记录包含时间、失败阶段、异常类型、上游状态码及排查建议；不记录密钥、请求正文、简历内容或 SDK 原始错误消息。`import.extract_text` 表示文件解析阶段，`import.generate_drafts` 表示调用模型整理草稿或保存草稿阶段。旧错误无法追溯，需要更新后重试一次。日志按天分文件，可按需删除；当前不自动清理。
+
+本地使用无需接入 Sentry。若以后部署给多人使用，再考虑集中错误监控，并配置个人资料脱敏和上传范围。
+
 ```powershell
 npm run typecheck
 npm run test

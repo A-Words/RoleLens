@@ -5,8 +5,10 @@ import { configured, createModel } from '../core/model'
 import { extractText, importDrafts } from '../core/import'
 import { createAgent } from '../core/agent'
 import { exportPdf } from '../core/pdf'
+import { reportFailure } from '../core/diagnostics'
 
 export default defineEventHandler(async (event) => {
+  let stage = 'api'
   try {
     const store = getStore(),
       path = getRouterParam(event, 'path') || '',
@@ -46,12 +48,15 @@ export default defineEventHandler(async (event) => {
       }
     }
     if (method === 'POST' && path === 'import') {
+      stage = 'import.model_config'
       const model = createModel()
       if (getHeader(event, 'content-type')?.includes('multipart/form-data')) {
         const fields = await readMultipartFormData(event)
         const file = fields?.find((f) => f.name === 'file')
         if (!file?.filename) throw new AppError(400, '请选择文件')
+        stage = 'import.extract_text'
         const text = await extractText(file.filename, file.data)
+        stage = 'import.generate_drafts'
         return await importDrafts(store, model, text, file.filename, undefined, file.data)
       }
       const b = z
@@ -61,6 +66,7 @@ export default defineEventHandler(async (event) => {
           targetId: z.string().optional(),
         })
         .parse(await body())
+      stage = 'import.generate_drafts'
       return await importDrafts(store, model, b.text, b.name, b.targetId)
     }
     if (parts[0] === 'jobs') {
@@ -80,6 +86,7 @@ export default defineEventHandler(async (event) => {
     if (parts[0] === 'sessions' && id) {
       if (method === 'GET') return { session: store.session(id), traces: store.traces(id) }
       if (method === 'POST' && action === 'run') {
+        stage = 'agent.run'
         const b = z.object({ answer: z.string().max(6000).optional() }).parse((await body()) || {})
         return await createAgent(store, createModel()).run(id, b.answer)
       }
@@ -96,6 +103,7 @@ export default defineEventHandler(async (event) => {
         return { ok: true }
       }
       if (method === 'GET' && action === 'pdf') {
+        stage = 'resume.export_pdf'
         const g = store.generation(id)
         const pdf = await exportPdf(
           g.content,
@@ -115,17 +123,20 @@ export default defineEventHandler(async (event) => {
     }
     throw new AppError(404, '接口不存在')
   } catch (e) {
-    if (e instanceof ZodError)
+    if (e instanceof ZodError && stage !== 'import.generate_drafts')
       throw createError({
         statusCode: 400,
         message:
           '输入格式不正确：' + e.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('；'),
       })
-    if (e instanceof AppError) throw createError({ statusCode: e.statusCode, message: e.message })
+    if (e instanceof AppError && e.statusCode < 500)
+      throw createError({ statusCode: e.statusCode, message: e.message })
     // Provider errors can contain request details. Never echo them into the browser.
+    const { errorId, hint } = reportFailure(e, stage)
     throw createError({
-      statusCode: 500,
-      message: '操作未完成，请检查文件格式或本机服务配置后重试。',
+      statusCode: e instanceof AppError ? e.statusCode : 500,
+      message: `${e instanceof AppError ? e.message : stage === 'import.extract_text' ? '文件文字提取失败，请检查文件是否损坏、加密或与扩展名一致。' : hint}（错误编号：${errorId}）`,
+      data: { errorId, stage },
     })
   }
 })
