@@ -1,6 +1,6 @@
 export default defineNuxtConfig({
   compatibilityDate: '2026-09-05',
-  devtools: { enabled: false },
+  devtools: { enabled: true },
   modules: ['@nuxt/ui'],
   ui: { fonts: false },
   colorMode: { preference: 'light' },
