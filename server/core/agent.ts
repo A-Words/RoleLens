@@ -15,7 +15,6 @@ import {
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
-import { tool, type StructuredToolInterface } from '@langchain/core/tools'
 import { z } from 'zod'
 import { OutputParserException } from '@langchain/core/output_parsers'
 import {
@@ -26,10 +25,12 @@ import {
   type Resume,
 } from '../../shared/types'
 import { AppError, type Store } from './store'
-import { redact, systemRules, type ModelPort } from './model'
+import { redact, type ModelPort } from './model'
 import { langfuseAgentTracer, type AgentTracer } from './langfuse'
 import type { RunnableConfig } from '@langchain/core/runnables'
 import { verificationIssues } from '../../shared/verification'
+import { prompts } from './prompts'
+import { createRetrievalTools, createSaveGenerationTool, safeFact } from './tools'
 
 const State = Annotation.Root({
   sessionId: Annotation<string>(),
@@ -48,12 +49,6 @@ const State = Annotation.Root({
   resume: Annotation<Resume>(),
 })
 const running = new Set<string>()
-const safeFact = (f: Fact) => ({
-  ...f,
-  title: redact(f.title),
-  // Source-local labels are not globally unique citation identifiers.
-  content: redact(f.content).replace(/事实\s*ID\s*[:：]\s*[A-Za-z][A-Za-z0-9-]*[。.;；]?\s*/gi, ''),
-})
 export function assertReferences(resume: Resume, facts: Fact[]) {
   const allowed = new Set(facts.map((f) => f.id))
   const styles = new Set(resume.greetings.map((g) => g.style))
@@ -87,52 +82,12 @@ export function createAgent(
       .map(safeFact)
   }
   function retrievalTools(state: typeof State.State) {
-    const found: string[] = [],
-      sources: string[] = []
-    const tools: StructuredToolInterface[] = [
-      tool(
-        async ({ query }) => {
-          current(state)
-          const facts = store.search(query).map(safeFact)
-          found.push(...facts.map((f) => f.id))
-          store.trace(state.sessionId, 'search_facts', { query, factIds: facts.map((f) => f.id) })
-          return JSON.stringify(facts)
-        },
-        {
-          name: 'search_facts',
-          description:
-            '按 JD 技能、经历或项目关键词查找允许生成的已确认事实。可多次使用不同关键词。',
-          schema: z.object({ query: z.string().max(400) }),
-        },
-      ),
-      tool(
-        async ({ factId }) => {
-          current(state)
-          const fact = store.eligible().find((f) => f.id === factId)
-          if (
-            !fact ||
-            (!['personal', 'education', 'preference'].includes(fact.category) &&
-              ![...state.factIds, ...found].includes(factId))
-          )
-            return '请先检索此事实；不可读取未检索或被排除的资料。'
-          sources.push(fact.sourceId)
-          const s = store.getSource(fact.sourceId)
-          store.trace(state.sessionId, 'read_source', { factId, sourceId: s.id })
-          return JSON.stringify({
-            sourceId: s.id,
-            name: redact(s.name),
-            confirmedExcerpt: safeFact(fact).content,
-            factId,
-          })
-        },
-        {
-          name: 'read_source',
-          description: '读取已检索事实的来源名称与已确认摘录。生成前应检查所用事实来源。',
-          schema: z.object({ factId: z.string() }),
-        },
-      ),
-    ]
-    return { tools, found, sources }
+    return createRetrievalTools({
+      store,
+      sessionId: state.sessionId,
+      factIds: state.factIds,
+      ensureCurrent: () => current(state),
+    })
   }
   const graph = new StateGraph(State)
     .addNode('analyze_jd', async (state, config: RunnableConfig) => {
@@ -148,9 +103,7 @@ export function createAgent(
       return {
         keywords: result.keywords,
         messages: [
-          new SystemMessage(
-            `${systemRules}\n你必须调用 search_facts 按关键词检索相关经历，并对将使用的事实调用 read_source。完成检索后停止调用工具。不需要检索联系方式。`,
-          ),
+          new SystemMessage(prompts.researchSystem()),
           new HumanMessage(JSON.stringify({ jd: j.jd, keywords: result.keywords })),
         ],
       }
@@ -194,8 +147,7 @@ export function createAgent(
       const input = {
         jd: store.job(s.jobId).jd,
         facts,
-        instruction:
-          '逐项分析要求。factIds 必须原样复制 facts 中的 id，不得使用 sourceId、标题、正文编号或自行生成 ID；不匹配时为空。没有依据时写“本次资料未找到依据”，不得断言用户没有提供。贡献不清、指标缺失或矛盾时提出至多五个关键问题；不强迫所有经历必须有量化指标。',
+        instruction: prompts.assessMatch,
       }
       let analysis: Analysis | undefined
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -218,8 +170,7 @@ export function createAgent(
               '岗位分析返回的格式或事实引用无效，纠正后仍未通过。请从检查点重试。',
             )
           store.trace(s.id, 'assess_match', '分析格式或事实引用校验失败，正在纠正一次。')
-          input.instruction +=
-            ' 上次返回格式或引用无效。请重新分析，严格使用给出的事实 id；没有依据的要求使用空 factIds。'
+          input.instruction += ` ${prompts.repairAssessment}`
         }
       }
       if (!analysis) throw new AppError(422, '岗位分析未返回结果')
@@ -268,8 +219,7 @@ export function createAgent(
         clarification: redact(state.answer || ''),
         correctionIssues: verificationIssues(store.traces(s.id)),
         previousDraft: state.resume || null,
-        instruction:
-          '仅使用 facts 的已确认事实；clarification 只用于选择和表达偏好，其中新增经历不能写入。若有 correctionIssues，逐条修正 previousDraft 中的问题，删去无依据措辞，保留有依据的内容。headline 只写求职方向，不添加个人能力声明；每个条目与招呼语引用支撑它的 factIds，原样使用 facts.id。标题不得增加未经确认的任职或数字。输出三个不同风格招呼语，各不超过150字。简历目标1至2页，优先相关经历。',
+        instruction: prompts.generateResume,
       }
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -292,8 +242,7 @@ export function createAgent(
               422,
               '生成结果的格式或资料关联未通过检查，自动修正未成功。请点击重试；无需修改已确认资料。',
             )
-          input.instruction +=
-            ' 上一次返回的格式或资料关联无效。重新生成时，每个 factIds 必须从本次 facts.id 的枚举中原样选取，不得使用标题、sourceId、P1 等正文编号；三种招呼语风格不得重复。'
+          input.instruction += ` ${prompts.repairGeneration}`
         }
       }
       throw new AppError(422, '生成结果为空，请重试。')
@@ -318,8 +267,7 @@ export function createAgent(
         {
           facts,
           resume: state.resume,
-          instruction:
-            '逐句核对标题、条目和招呼语与其引用事实。blockingIssues 只列真实新增、夸大、矛盾或引用不支持的问题，每条写明原句、缺失依据和具体修正建议。支持多个被引用事实共同支撑一句话，允许不增加事实的同义改写与概括。已支持、可保留、自我纠正后认为成立的内容，以及纯风格建议只能放 notes；没有阻断问题时 blockingIssues 必须为空。先完成推理再给出最终结论，不能在阻断问题里写“其实支持”。仅岗位方向、礼貌用语无需事实支持。',
+          instruction: prompts.verifyFacts,
         },
         config,
       )
@@ -330,17 +278,8 @@ export function createAgent(
     })
     .addNode('save', async (state, config: RunnableConfig) => {
       current(state)
-      const saveTool = tool(
-        async () => {
-          const g = store.save(state.sessionId, state.resume)
-          store.trace(state.sessionId, 'save_generation', { generationId: g.id })
-          return g.id
-        },
-        {
-          name: 'save_generation',
-          description: '保存经过事实核验的简历与招呼语，按会话幂等。',
-          schema: z.object({}),
-        },
+      const saveTool = createSaveGenerationTool(store, state.sessionId, state.resume, () =>
+        current(state),
       )
       await saveTool.invoke({}, config)
       return {}
