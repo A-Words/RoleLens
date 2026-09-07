@@ -1,9 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { Store } from '../server/core/store'
 import { createAgent, assertReferences } from '../server/core/agent'
+import type { AgentTracer } from '../server/core/langfuse'
 import { FakeModel } from './helpers/fake-model'
 import { importDrafts } from '../server/core/import'
 const dirs: string[] = [],
@@ -236,4 +237,36 @@ test('concurrent runs for the same session are rejected', async () => {
   const first = agent.run(session.id)
   await expect(agent.run(session.id)).rejects.toThrow('正在执行')
   await first
+})
+
+test('optional agent tracing config reaches model calls and flushes independently', async () => {
+  const { store, job, model } = setup()
+  const callback = {} as any
+  const finish = vi.fn(async () => {
+    throw new Error('flush failed')
+  })
+  const tracer = vi.fn(() => ({
+    config: {
+      callbacks: [callback],
+      metadata: { rolelensSessionId: 'session', rolelensJobId: job.id },
+      tags: ['rolelens'],
+      runName: 'rolelens-agent',
+    },
+    finish,
+  })) as unknown as AgentTracer
+  const session = store.createSession(job.id)
+
+  await createAgent(store, model, tracer).run(session.id)
+
+  expect(tracer).toHaveBeenCalledWith({ sessionId: session.id, jobId: job.id })
+  expect(model.configs.filter(Boolean).length).toBeGreaterThan(0)
+  expect(
+    model.configs.filter(Boolean).every(
+      (config) =>
+        !!config?.callbacks &&
+        config.metadata?.rolelensSessionId === 'session' &&
+        config.metadata?.rolelensJobId === job.id,
+    ),
+  ).toBe(true)
+  expect(finish).toHaveBeenCalledOnce()
 })

@@ -12,4 +12,6 @@ Nuxt 4 + TypeScript 提供页面，Nitro 提供 API。SQLite 保存领域数据�
 
 PDF 使用本地 Chromium 和内置中文字体，HTML 转义并禁用外部网络访问。模型配置只存在服务端环境。Git 仅提交源码、文档、锁文件和配置示例。
 
-参考：[Nuxt server](https://nuxt.com/docs/4.x/directory-structure/server)、[LangGraph persistence](https://docs.langchain.com/oss/javascript/langgraph/persistence)、[interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts)。
+开发阶段 Agent tracing 是独立的、显式开启的可选能力：`@langfuse/langchain` CallbackHandler 随 LangGraph invocation 传递，`@langfuse/otel` 的 LangfuseSpanProcessor 负责 OpenTelemetry 导出，环境固定为 development。sessionId 和 jobId 只作为字符串 metadata 关联，不把 Langfuse Prompt Management 或原始 SQLite Trace 接入业务流程。初始化、上报和刷新失败均 fail-open，不改变 Agent 状态、checkpoint 或 `Store.trace`；导出前额外复用现有敏感信息脱敏规则。
+
+参考：[Nuxt server](https://nuxt.com/docs/4.x/directory-structure/server)、[LangGraph persistence](https://docs.langchain.com/oss/javascript/langgraph/persistence)、[interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts)、[Langfuse LangChain/LangGraph integration](https://langfuse.com/integrations/frameworks/langchain)。

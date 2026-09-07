@@ -1,6 +1,8 @@
 import { AIMessage, type BaseMessage } from '@langchain/core/messages'
 import type { z } from 'zod'
+import type { RunnableConfig } from '@langchain/core/runnables'
 import type { ModelPort } from '../../server/core/model'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { Fact } from '../../shared/types'
 import { OutputParserException } from '@langchain/core/output_parsers'
 
@@ -12,8 +14,15 @@ export class FakeModel implements ModelPort {
   invalidGenerationCount = 0
   parserFailure = false
   seen: { stage: string; data: unknown }[] = []
-  async structured<T>(schema: z.ZodType<T>, stage: string, data: unknown): Promise<T> {
+  configs: (RunnableConfig | undefined)[] = []
+  async structured<T>(
+    schema: z.ZodType<T>,
+    stage: string,
+    data: unknown,
+    config?: RunnableConfig,
+  ): Promise<T> {
     this.seen.push({ stage, data })
+    this.configs.push(config)
     if (stage === 'assess_match' && this.parserFailure) {
       this.parserFailure = false
       throw new OutputParserException('Invalid structured output')
@@ -74,7 +83,12 @@ export class FakeModel implements ModelPort {
     else throw new Error(`Unknown stage ${stage}`)
     return schema.parse(result)
   }
-  async call(messages: BaseMessage[]) {
+  async call(
+    messages: BaseMessage[],
+    _tools?: StructuredToolInterface[],
+    config?: RunnableConfig,
+  ) {
+    this.configs.push(config)
     if (!messages.some((m) => m.type === 'tool')) {
       const query = JSON.parse(String(messages.at(-1)!.content)).keywords[0]
       return new AIMessage({

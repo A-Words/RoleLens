@@ -1,5 +1,14 @@
 # 验证记录
 
+## 2026-09-08 Langfuse 开发观测
+
+- 新增可选 Langfuse v5/OpenTelemetry tracing：默认关闭，仅 `ROLELENS_LANGFUSE_ENABLED=true`、`NODE_ENV=development`、development environment 和完整密钥同时满足时初始化。
+- `npm run typecheck`、`npm test`（34 项）、`npm run build` 和 `npm run test:e2e`（4 项）通过；无 Langfuse 密钥时测试不建立网络上报，现有 SQLite 业务 Trace 与 Agent checkpoint 流程保持不变。
+- 新增 trace-only 脱敏测试，覆盖邮箱、手机号及明显凭据字段；新增 callback config 测试，确认 session/job metadata 传入模型节点并在 Agent finally 中独立刷新。
+- 未配置真实 Langfuse 项目，因此尚未进行云端 trace UI 的人工验收。配置开发项目后应使用已清理或合成资料，检查 graph、LLM、tool、输入输出、token usage、耗时层级及 development environment。
+
+日期：2026-09-08。环境：Windows、Node.js 24.18.1、Nuxt 4.5.2、Langfuse 5.11.0。
+
 ## 2026-09-07 使用流程修复
 
 - 自动带入启用的基础档案；测试覆盖学历无 JD 关键词时仍进入分析，以及排除资料和联系方式不进入提示。

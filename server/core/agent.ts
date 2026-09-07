@@ -27,6 +27,8 @@ import {
 } from '../../shared/types'
 import { AppError, type Store } from './store'
 import { redact, systemRules, type ModelPort } from './model'
+import { langfuseAgentTracer, type AgentTracer } from './langfuse'
+import type { RunnableConfig } from '@langchain/core/runnables'
 import { verificationIssues } from '../../shared/verification'
 
 const State = Annotation.Root({
@@ -61,7 +63,11 @@ export function assertReferences(resume: Resume, facts: Fact[]) {
       throw new AppError(422, '生成内容引用了不可用的事实，请重新分析')
   }
 }
-export function createAgent(store: Store, model: ModelPort) {
+export function createAgent(
+  store: Store,
+  model: ModelPort,
+  tracer: AgentTracer = langfuseAgentTracer,
+) {
   const saver = new SqliteSaver(store.db)
   function current(state: typeof State.State) {
     const session = store.session(state.sessionId)
@@ -129,7 +135,7 @@ export function createAgent(store: Store, model: ModelPort) {
     return { tools, found, sources }
   }
   const graph = new StateGraph(State)
-    .addNode('analyze_jd', async (state) => {
+    .addNode('analyze_jd', async (state, config: RunnableConfig) => {
       const s = current(state),
         j = store.job(s.jobId)
       store.trace(s.id, 'analyze_jd', '提取岗位要求')
@@ -137,6 +143,7 @@ export function createAgent(store: Store, model: ModelPort) {
         z.object({ keywords: z.array(z.string()).min(1).max(12) }),
         'analyze_jd',
         { company: j.company, title: j.title, jd: j.jd },
+        config,
       )
       return {
         keywords: result.keywords,
@@ -148,24 +155,24 @@ export function createAgent(store: Store, model: ModelPort) {
         ],
       }
     })
-    .addNode('research', async (state) => {
+    .addNode('research', async (state, config: RunnableConfig) => {
       current(state)
       const { tools } = retrievalTools(state)
-      return { messages: [await model.call(state.messages, tools)] }
+      return { messages: [await model.call(state.messages, tools, config)] }
     })
-    .addNode('tools', async (state) => {
+    .addNode('tools', async (state, config: RunnableConfig) => {
       const { tools, found, sources } = retrievalTools(state)
       const last = state.messages.at(-1) as AIMessage
       const messages: BaseMessage[] = []
       for (const call of last.tool_calls || []) {
         const t = tools.find((t) => t.name === call.name)
         if (!t) throw new AppError(422, '模型请求了未知工具')
-        const content = await t.invoke(call.args)
+        const content = await t.invoke(call.args, config)
         messages.push(new ToolMessage({ content: String(content), tool_call_id: call.id! }))
       }
       return { messages, factIds: found, sourceIds: sources }
     })
-    .addNode('assess', async (state) => {
+    .addNode('assess', async (state, config: RunnableConfig) => {
       const s = current(state),
         facts = selected(state)
       if (!facts.length)
@@ -173,7 +180,7 @@ export function createAgent(store: Store, model: ModelPort) {
       // Ensure every candidate has actually been read through the source tool.
       const { tools } = retrievalTools(state)
       for (const f of facts)
-        if (!state.sourceIds.includes(f.sourceId)) await tools[1]!.invoke({ factId: f.id })
+        if (!state.sourceIds.includes(f.sourceId)) await tools[1]!.invoke({ factId: f.id }, config)
       const ids = new Set(facts.map((f) => f.id))
       const referenceSchema = analysisSchema.extend({
         requirements: z
@@ -193,7 +200,7 @@ export function createAgent(store: Store, model: ModelPort) {
       let analysis: Analysis | undefined
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          analysis = await model.structured(referenceSchema, 'assess_match', input)
+          analysis = await model.structured(referenceSchema, 'assess_match', input, config)
           if (analysis.requirements.some((r) => r.factIds.some((id) => !ids.has(id))))
             throw new AppError(422, '岗位分析引用了未知事实')
           break
@@ -229,7 +236,7 @@ export function createAgent(store: Store, model: ModelPort) {
       })
       return { answer }
     })
-    .addNode('generate', async (state) => {
+    .addNode('generate', async (state, config: RunnableConfig) => {
       const s = current(state),
         facts = selected(state)
       store.trace(s.id, 'generate', '根据已确认资料起草')
@@ -266,7 +273,7 @@ export function createAgent(store: Store, model: ModelPort) {
       }
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const resume = await model.structured(generationSchema, 'generate_resume', input)
+          const resume = await model.structured(generationSchema, 'generate_resume', input, config)
           assertReferences(resume, facts)
           return { resume }
         } catch (e) {
@@ -291,7 +298,7 @@ export function createAgent(store: Store, model: ModelPort) {
       }
       throw new AppError(422, '生成结果为空，请重试。')
     })
-    .addNode('verify', async (state) => {
+    .addNode('verify', async (state, config: RunnableConfig) => {
       const facts = selected(state)
       try {
         assertReferences(state.resume, facts)
@@ -314,13 +321,14 @@ export function createAgent(store: Store, model: ModelPort) {
           instruction:
             '逐句核对标题、条目和招呼语与其引用事实。blockingIssues 只列真实新增、夸大、矛盾或引用不支持的问题，每条写明原句、缺失依据和具体修正建议。支持多个被引用事实共同支撑一句话，允许不增加事实的同义改写与概括。已支持、可保留、自我纠正后认为成立的内容，以及纯风格建议只能放 notes；没有阻断问题时 blockingIssues 必须为空。先完成推理再给出最终结论，不能在阻断问题里写“其实支持”。仅岗位方向、礼貌用语无需事实支持。',
         },
+        config,
       )
       store.trace(state.sessionId, 'verify_facts', verdict)
       if (verdict.blockingIssues.length)
         throw new AppError(422, '事实核验未通过，请重新生成；可在执行记录查看原因')
       return {}
     })
-    .addNode('save', async (state) => {
+    .addNode('save', async (state, config: RunnableConfig) => {
       current(state)
       const saveTool = tool(
         async () => {
@@ -334,7 +342,7 @@ export function createAgent(store: Store, model: ModelPort) {
           schema: z.object({}),
         },
       )
-      await saveTool.invoke({})
+      await saveTool.invoke({}, config)
       return {}
     })
     .addEdge(START, 'analyze_jd')
@@ -359,7 +367,17 @@ export function createAgent(store: Store, model: ModelPort) {
       current({ sessionId } as typeof State.State)
       if (s.status === 'complete') return s
       running.add(sessionId)
-      const config = { configurable: { thread_id: sessionId }, recursionLimit: 30 }
+      let trace
+      try {
+        trace = tracer({ sessionId, jobId: s.jobId })
+      } catch {
+        trace = undefined
+      }
+      const config: RunnableConfig = {
+        configurable: { thread_id: sessionId },
+        recursionLimit: 30,
+        ...trace?.config,
+      }
       try {
         const checkpoint = await graph.getState(config)
         const waiting = checkpoint.tasks.some((t) => t.interrupts?.length)
@@ -386,6 +404,11 @@ export function createAgent(store: Store, model: ModelPort) {
         store.trace(sessionId, 'error', message)
         throw e instanceof AppError ? e : new AppError(502, message, e)
       } finally {
+        try {
+          await trace?.finish()
+        } catch {
+          // Observability must not change the Agent result.
+        }
         running.delete(sessionId)
       }
     },
