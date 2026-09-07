@@ -16,6 +16,15 @@ describe('local diagnostics', () => {
       describeFailure(Object.assign(new Error('Internal server error'), { status: 500 })).hint,
     ).toContain('模型服务返回 500')
   })
+  it('does not classify native module loading failures as network failures', () => {
+    const result = describeFailure({ code: 'ERR_DLOPEN_FAILED' })
+    expect(result.hint).toContain('本地原生依赖加载失败')
+    expect(result.hint).not.toContain('网络')
+  })
+  it('only classifies allowlisted transport errors as network failures', () => {
+    expect(describeFailure({ code: 'ECONNRESET' }).hint).toContain('连接失败或超时')
+    expect(describeFailure({ code: 'EACCES' }).hint).not.toContain('连接失败或超时')
+  })
   it('classifies nested provider failures without serializing private payloads', () => {
     const cause = Object.assign(new Error('Bearer secret; resume text'), {
       status: 401,
