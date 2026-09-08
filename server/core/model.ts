@@ -24,8 +24,10 @@ export function configured() {
   const config = runtimeConfig().resolve()
   return !!(config.apiKey && config.model)
 }
-export function createModel(): ModelPort {
-  const config = runtimeConfig().resolve()
+export function createModel(
+  config = runtimeConfig().resolve(),
+  limits: { timeout?: number; maxRetries?: number } = {},
+): ModelPort {
   if (!config.apiKey || !config.model)
     throw new AppError(503, '请在设置页面配置 API Key 与 Model。')
   const protocol = config.protocol
@@ -34,8 +36,8 @@ export function createModel(): ModelPort {
     apiKey: config.apiKey,
     model: config.model,
     configuration: { baseURL: config.baseUrl },
-    maxRetries: 1,
-    timeout: 90000,
+    maxRetries: limits.maxRetries ?? 1,
+    timeout: limits.timeout ?? 90000,
   })
   return {
     async structured<T>(

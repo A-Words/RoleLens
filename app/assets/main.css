@@ -6,3 +6,32 @@
 body {
   @apply bg-default text-default antialiased;
 }
+:root {
+  --ui-radius: 0.5rem;
+  --ui-primary: var(--ui-color-primary-600);
+  color-scheme: light;
+}
+.dark {
+  --ui-primary: var(--ui-color-primary-400);
+  color-scheme: dark;
+}
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

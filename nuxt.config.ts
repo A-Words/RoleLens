@@ -3,7 +3,7 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@nuxt/ui'],
   ui: { fonts: false },
-  colorMode: { preference: 'light' },
+  colorMode: { preference: 'system', fallback: 'light' },
   icon: { provider: 'server', serverBundle: { collections: ['lucide'] } },
   css: [
     '@fontsource/noto-sans-sc/400.css',

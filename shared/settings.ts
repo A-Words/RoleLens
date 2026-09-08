@@ -37,9 +37,11 @@ export const settingsWriteSchema = settingsSchema.extend({
 export type SettingsView = {
   mode: 'local'
   settings: Settings
+  effectiveSettings: Settings
   configured: boolean
   secrets: Record<SecretName, boolean>
   overrides: string[]
   langfuseAvailable: boolean
   langfuseRestartRequired: boolean
 }
+export type ConnectionTestResult = { ok: boolean; message: string; durationMs: number }

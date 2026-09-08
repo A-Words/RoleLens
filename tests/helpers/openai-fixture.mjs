@@ -11,6 +11,21 @@ const server = createServer(async (req, res) => {
     const request = JSON.parse(body),
       messages = request.messages
     const forced = request.tool_choice?.function?.name
+    if (messages?.[0]?.content === 'Reply with only OK.') {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          id: 'probe',
+          object: 'chat.completion',
+          created: 1,
+          model: request.model,
+          choices: [
+            { index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' },
+          ],
+        }),
+      )
+      return
+    }
     let name = forced || request.tools?.[0]?.function?.name
     let output,
       toolCall = true

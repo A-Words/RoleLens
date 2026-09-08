@@ -123,6 +123,11 @@ export class LocalConfigProvider implements RuntimeConfigProvider {
     return {
       mode: 'local',
       settings: this.stored().settings,
+      effectiveSettings: settingsSchema.parse(
+        Object.fromEntries(
+          Object.keys(settingsSchema.shape).map((key) => [key, resolved[key as keyof Settings]]),
+        ),
+      ),
       configured: !!(resolved.apiKey && resolved.model),
       secrets: Object.fromEntries(secretNames.map((name) => [name, !!resolved[name]])) as Record<
         SecretName,
