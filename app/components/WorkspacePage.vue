@@ -1,5 +1,11 @@
 <script setup lang="ts">
-defineProps<{ title: string; description?: string; back?: boolean; compact?: boolean }>()
+defineProps<{
+  title: string
+  description?: string
+  back?: boolean
+  compact?: boolean
+  simpleHeader?: boolean
+}>()
 const { data: status } = await useFetch<{ configured: boolean }>('/api/status', {
   key: 'model-status',
 })
@@ -8,7 +14,7 @@ const { data: status } = await useFetch<{ configured: boolean }>('/api/status', 
   <UDashboardPanel :ui="{ body: 'gap-6 bg-muted/35 sm:p-8' }">
     <template #header>
       <UDashboardNavbar :title="title" :toggle="{ label: '导航' }">
-        <template v-if="description && !compact" #left>
+        <template v-if="description && !compact && !simpleHeader" #left>
           <UButton
             v-if="back"
             to="/jobs"
@@ -45,7 +51,9 @@ const { data: status } = await useFetch<{ configured: boolean }>('/api/status', 
             ><UButton to="/settings" label="配置模型" color="warning" variant="outline"
           /></template>
         </UAlert>
-        <p v-if="compact && description" class="text-sm text-muted">{{ description }}</p>
+        <p v-if="(compact || simpleHeader) && description" class="text-sm text-muted">
+          {{ description }}
+        </p>
         <div v-else-if="description" class="border-b border-default pb-5">
           <p class="mb-2 text-xs font-semibold tracking-widest text-primary">ROLELENS / 工作空间</p>
           <h1 class="text-2xl font-semibold tracking-tight text-highlighted">{{ title }}</h1>

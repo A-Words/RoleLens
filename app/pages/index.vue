@@ -155,29 +155,25 @@ function viewHistory(id: string) {
   <WorkspacePage
     title="个人资料库"
     description="把真实经历整理为可复用的求职档案，由你确认每一条事实。"
+    simple-header
   >
-    <template #actions
-      ><UButton icon="i-lucide-upload" label="导入资料" @click="showImport = true"
-    /></template>
-    <template #toolbar>
-      <div class="flex w-full flex-wrap items-center gap-3">
-        <UInput
-          v-model="search"
-          icon="i-lucide-search"
-          aria-label="搜索资料"
-          placeholder="搜索项目、技能或经历…"
-          class="w-full sm:max-w-xs"
-        />
-        <USelect v-model="category" :items="categoryItems" aria-label="筛选资料类别" class="w-40" />
-        <UButton
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-plus"
-          label="手动录入"
-          class="sm:ml-auto"
-          @click="showManual = true"
-        />
-      </div>
+    <template #actions>
+      <UButton
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-plus"
+        label="手动录入"
+        aria-label="手动录入"
+        :ui="{ label: 'hidden sm:inline' }"
+        @click="showManual = true"
+      />
+      <UButton
+        icon="i-lucide-upload"
+        label="导入资料"
+        aria-label="导入资料"
+        :ui="{ label: 'hidden sm:inline' }"
+        @click="showImport = true"
+      />
     </template>
     <UAlert
       v-if="returnJob"
@@ -200,7 +196,7 @@ function viewHistory(id: string) {
       :description="error"
     />
     <div class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <section class="min-w-0 space-y-5">
+      <section class="min-w-0 space-y-5" aria-label="资料列表">
         <UTabs
           v-model="view"
           :items="viewItems"
@@ -209,6 +205,21 @@ function viewHistory(id: string) {
           :ui="{ list: 'w-full', trigger: 'flex-1' }"
         />
         <template v-if="view === 'facts'">
+          <div class="flex flex-wrap items-center gap-3">
+            <UInput
+              v-model="search"
+              icon="i-lucide-search"
+              aria-label="搜索资料"
+              placeholder="搜索已确认资料…"
+              class="w-full sm:w-auto sm:min-w-0 sm:flex-1"
+            />
+            <USelect
+              v-model="category"
+              :items="categoryItems"
+              aria-label="筛选资料类别"
+              class="w-full sm:w-40"
+            />
+          </div>
           <UEmpty
             v-if="!filtered.length"
             icon="i-lucide-folder-open"
@@ -368,20 +379,20 @@ function viewHistory(id: string) {
           </div></template
         >
         <p class="mb-5 text-sm leading-6 text-muted">
-          讲述一段经历，或选择已有资料进行修改。Agent 会先整理为草稿。
+          写下你想补充的经历，或选择一条已有资料说明需要修改的内容。
         </p>
         <form class="space-y-5" @submit.prevent="importText">
-          <UFormField label="补充方式"
+          <UFormField label="补充到哪里"
             ><USelect v-model="targetId" :items="targetItems" class="w-full"
           /></UFormField>
-          <UFormField label="经历描述"
+          <UFormField label="想补充什么" help="不必组织成简历语言，先写清你做了什么。"
             ><UTextarea
               v-model="text"
               class="w-full"
               :rows="7"
               required
               maxlength="60000"
-              placeholder="例如：我在这个项目中负责什么，使用了哪些技术，完成了哪些功能…"
+              placeholder="例如：这个项目里我负责了哪些部分？做了什么、遇到什么问题，又是怎么解决的？"
           /></UFormField>
           <UButton
             type="submit"
@@ -396,7 +407,7 @@ function viewHistory(id: string) {
             <UIcon
               name="i-lucide-shield-check"
               class="mt-0.5 size-4 shrink-0"
-            />你始终保有最终确认权。草稿不会自动覆盖经历。
+            />整理结果会进入「待确认草稿」，由你核对后入库，不会直接覆盖已有资料。
           </p></template
         >
       </UCard>

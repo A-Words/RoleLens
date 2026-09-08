@@ -82,6 +82,11 @@ test('import → confirmation → JD → interruption → edit → Chinese PDF',
 
 test('Nuxt UI forms, profile filters, theme and mobile navigation', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('个人资料库')
+  await expect(
+    page.getByRole('region', { name: '资料列表' }).getByRole('textbox', { name: '搜索资料' }),
+  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: '对话补充' })).toBeVisible()
   const manual = page.getByRole('button', { name: '手动录入', exact: true }).first()
   await manual.click()
   const dialog = page.getByRole('dialog')
@@ -95,6 +100,7 @@ test('Nuxt UI forms, profile filters, theme and mobile navigation', async ({ pag
     'aria-selected',
     'true',
   )
+  await expect(page.getByRole('textbox', { name: '搜索资料' })).toHaveCount(0)
   await page.getByRole('button', { name: '确认入库' }).click()
   await page.getByRole('textbox', { name: '搜索资料' }).fill('Nuxt UI 回归资料')
   const row = page.getByTestId('fact-row')
@@ -131,6 +137,12 @@ test('Nuxt UI forms, profile filters, theme and mobile navigation', async ({ pag
   await expect(page.getByRole('heading', { name: '职位工作台', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '关闭侧边栏' })).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('button', { name: '打开侧边栏' }).click()
+  await page.getByRole('link', { name: '资料库', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('个人资料库')
+  await expect(page.getByRole('button', { name: '导入资料', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: '.qa/library-hierarchy-mobile.png', fullPage: true })
 })
 
 test('local API rejects cross-site mutation and invalid inputs', async ({ request }) => {
