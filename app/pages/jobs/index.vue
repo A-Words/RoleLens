@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { jobInput, type Job } from '#shared/types'
 const { data: jobs } = await useFetch<Job[]>('/api/jobs')
+const search = ref('')
+const filteredJobs = computed(() => {
+  const query = search.value.trim().toLocaleLowerCase()
+  return (jobs.value ?? []).filter((job) =>
+    `${job.company} ${job.title} ${job.jd}`.toLocaleLowerCase().includes(query),
+  )
+})
 const { busy, error, act } = useAction()
 const creating = ref(false),
   form = reactive({ company: '', title: '', jd: '' })
@@ -16,6 +23,26 @@ function create() {
     <template #actions
       ><UButton label="添加职位" icon="i-lucide-plus" @click="creating = true"
     /></template>
+    <template #toolbar>
+      <div class="flex w-full flex-wrap items-center gap-3">
+        <UInput
+          v-model="search"
+          icon="i-lucide-search"
+          aria-label="搜索职位"
+          placeholder="搜索职位、公司或关键词…"
+          class="w-full sm:max-w-sm"
+        />
+        <span class="text-xs text-muted" role="status">{{ filteredJobs.length }} 个职位</span>
+        <UButton
+          v-if="search"
+          label="清除搜索"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          @click="search = ''"
+        />
+      </div>
+    </template>
     <UEmpty
       v-if="!jobs?.length"
       icon="i-lucide-briefcase-business"
@@ -28,16 +55,26 @@ function create() {
         ><UButton label="添加第一个职位" icon="i-lucide-plus" @click="creating = true"
       /></template>
     </UEmpty>
-    <div v-else class="overflow-hidden rounded-lg border border-default">
+    <UEmpty
+      v-else-if="!filteredJobs.length"
+      icon="i-lucide-search"
+      title="没有找到匹配职位"
+      description="试试公司名称、职位名称，或清除搜索查看所有机会。"
+    >
+      <template #actions
+        ><UButton label="查看所有职位" color="neutral" variant="outline" @click="search = ''"
+      /></template>
+    </UEmpty>
+    <div v-else class="overflow-hidden rounded-xl border border-default bg-default">
       <div
         class="flex items-center justify-between border-b border-default bg-elevated/40 px-5 py-3"
       >
         <h2 class="text-sm font-medium">已保存职位</h2>
-        <UBadge color="neutral" variant="subtle" :label="String(jobs.length)" />
+        <UBadge color="neutral" variant="subtle" :label="String(filteredJobs.length)" />
       </div>
       <div class="divide-y divide-default">
         <NuxtLink
-          v-for="job in jobs"
+          v-for="job in filteredJobs"
           :key="job.id"
           :to="'/jobs/' + job.id"
           class="group flex gap-4 p-5 transition-colors hover:bg-elevated/40 sm:p-6"
