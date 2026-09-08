@@ -12,14 +12,13 @@
 npm run dev
 ```
 
-首次克隆项目时才需要安装依赖；首次配置模型时复制配置示例，不要覆盖已有 `.env`：
+首次克隆运行 `npm install`，然后 `npm run dev`，在设置页面配置 Provider、Base URL、API Key、Model 和 Protocol。无需先创建 `.env`，保存后下一次任务生效。当前支持 OpenAI 与 OpenAI-compatible 服务，模型需要支持工具调用及结构化输出。
 
-```powershell
-npm ci
-if (!(Test-Path .env)) { Copy-Item .env.example .env }
-```
+RoleLens 明确采用 local-first：当前仅实现 Local Mode（单用户、无需账号、127.0.0.1、SQLite、本地文件）。Hosted Mode 仅保留架构边界，未实现多用户、多租户、认证或 PostgreSQL。详情见 [运行时配置 ADR](docs/ADR-002-local-first-runtime-config.md)。
 
-编辑本机 `.env`，填写 `ROLELENS_API_KEY`、`ROLELENS_MODEL`，需要时设置 `ROLELENS_BASE_URL`，然后运行 `npm run dev`。模型必须支持工具调用与结构化输出。`ROLELENS_API_PROTOCOL` 默认 `chat-completions`；供应商要求 Responses API 时设为 `responses`。BASE_URL 保留到 `/v1`，无需附加 `/responses` 或 `/chat/completions`。修改配置后重启应用。RoleLens 不主动使用 LangSmith；如需开发阶段 Agent tracing，见 [Langfuse 开发观测](docs/observability.md)，仅在 `NODE_ENV=development` 且显式开启并配置密钥时启用。
+`.env` 用于启动配置和开发 override：非空环境变量 > 页面保存值 > 默认值。页面显示被覆盖的字段名，移除 override 并重启后使用保存值。密钥经 Nitro 保存和使用，读取接口不返回密钥。第一版密钥明文保存在本地 SQLite，备份同样含密钥，应保护数据目录；SecretStore 接口保留系统凭据存储与 Hosted secret storage 的替换空间。
+
+Langfuse 可在设置页配置，默认关闭，仅开发环境可启用，修改后重启应用。未配置或不可用不影响业务。Local-first 不代表完全离线：模型及显式启用的追踪会访问配置的服务。
 
 例如 OpenCode Go 的 `gpt-5.6-luna` 使用 `responses`，具体模型的端点以[供应商文档](https://opencode.ai/docs/go/)为准。模型列表可访问不代表生成接口可用；协议、模型权限和供应商地区支持均会影响调用。
 

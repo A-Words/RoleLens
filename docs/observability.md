@@ -1,3 +1,5 @@
+> 配置入口更新：Local Mode 可直接在设置页填写 Langfuse 地址和密钥并显式开启，保存后重启。下文环境变量方式作为开发 override 保留。未设置 LANGFUSE_TRACING_ENVIRONMENT 时默认开发追踪；非 development 的显式值仍禁用。生产运行不启用此开发工具。
+
 # Langfuse 开发观测
 
 RoleLens 可选地把 Agent 的 LangGraph/LangChain 执行发送到 Langfuse，用于开发阶段排查模型、工具和耗时层级。它不是业务功能，不使用 Langfuse Prompt Management，也不会写入或替换本地 SQLite `traces`。

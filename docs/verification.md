@@ -1,5 +1,12 @@
 # 验证记录
 
+## 2026-09-08 Local-first 运行时配置
+
+- 类型检查、38 项单元/集成测试和生产构建通过；现有 4 项端到端测试通过（本地模型 fixture）。
+- 新增运行时配置测试覆盖默认值、持久化、密钥保留/删除、响应不回显密钥、环境 override、非法 URL/协议、Hosted Mode 拒绝以及配置与密钥事务回滚。
+- 隔离数据目录、无 .env 的生产服务实际验证设置页保存、刷新、密钥输入清空、读取接口只返回配置状态；跨站 PUT /api/settings 返回 403。
+- 模型支持 OpenAI / OpenAI-compatible 的 chat-completions 与 responses。未重新调用真实云端模型或 Langfuse，供应商与云端追踪效果仍需实际配置后验证。Langfuse 保持可选开发工具，修改提示重启生效。
+
 ## 2026-09-08 Langfuse 开发观测
 
 - 新增可选 Langfuse v5/OpenTelemetry tracing：默认关闭，仅 `ROLELENS_LANGFUSE_ENABLED=true`、`NODE_ENV=development`、development environment 和完整密钥同时满足时初始化。

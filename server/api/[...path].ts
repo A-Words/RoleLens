@@ -1,3 +1,4 @@
+import { runtimeConfig } from '../core/runtime-config'
 import { z, ZodError } from 'zod'
 import { factInput, jobInput, resumeSchema } from '../../shared/types'
 import { AppError, getStore } from '../core/store'
@@ -17,6 +18,10 @@ export default defineEventHandler(async (event) => {
       id = parts[1] || '',
       action = parts[2]
     const body = async () => await readBody(event)
+    if (path === 'settings') {
+      if (method === 'GET') return runtimeConfig().view()
+      if (method === 'PUT') return runtimeConfig().save(await body())
+    }
     if (method === 'GET' && path === 'status')
       return { configured: configured(), revision: store.revision() }
     if (parts[0] === 'facts') {

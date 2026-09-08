@@ -7,7 +7,7 @@ vi.mock('@langchain/openai', () => ({
     }
   },
 }))
-import { createModel } from '../server/core/model'
+import { configured, createModel } from '../server/core/model'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -18,6 +18,16 @@ describe('model API protocol', () => {
     vi.stubEnv('ROLELENS_API_KEY', 'test-key')
     vi.stubEnv('ROLELENS_MODEL', 'test-model')
   }
+  it('keeps model status and creation available with invalid optional tracing', () => {
+    setup()
+    vi.stubEnv('LANGFUSE_BASE_URL', 'not-a-url')
+    vi.stubEnv('ROLELENS_LANGFUSE_ENABLED', 'invalid')
+    expect(configured()).toBe(true)
+    createModel()
+    expect(constructor).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'test-key', model: 'test-model' }),
+    )
+  })
   it.each([
     ['', false],
     ['chat-completions', false],

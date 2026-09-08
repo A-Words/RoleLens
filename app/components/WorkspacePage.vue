@@ -28,7 +28,7 @@ const { data: status } = await useFetch<{ configured: boolean }>('/api/status', 
           color="warning"
           variant="subtle"
           title="尚未连接模型"
-          description="在本机 .env 配置 API 密钥和模型后重启。你可以先手动建立档案。"
+          description="请前往设置页面配置 API 密钥和模型。你可以先手动建立档案。"
         />
         <p v-if="description" class="text-sm text-muted">{{ description }}</p>
         <slot /></div

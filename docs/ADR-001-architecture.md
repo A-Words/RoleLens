@@ -10,7 +10,7 @@ Nuxt 4 + TypeScript 提供页面，Nitro 提供 API。SQLite 保存领域数据�
 
 单进程本地部署，进程内拒绝同会话并发执行。重启后从检查点恢复。用户补充仅供当次任务解释使用；新增事实仍需通过草稿确认。确认/排除/删除会增加资料修订号，运行过程发生变更则要求重新开始，避免旧检查点使用已删除资料。
 
-PDF 使用本地 Chromium 和内置中文字体，HTML 转义并禁用外部网络访问。模型配置只存在服务端环境。Git 仅提交源码、文档、锁文件和配置示例。
+PDF 使用本地 Chromium 和内置中文字体，HTML 转义并禁用外部网络访问。模型配置由服务端运行时配置服务解析，见 ADR 002。Git 仅提交源码、文档、锁文件和配置示例。
 
 开发阶段 Agent tracing 是独立的、显式开启的可选能力：`@langfuse/langchain` CallbackHandler 随 LangGraph invocation 传递，`@langfuse/otel` 的 LangfuseSpanProcessor 负责 OpenTelemetry 导出，环境固定为 development。sessionId 和 jobId 只作为字符串 metadata 关联，不把 Langfuse Prompt Management 或原始 SQLite Trace 接入业务流程。初始化、上报和刷新失败均 fail-open，不改变 Agent 状态、checkpoint 或 `Store.trace`；导出前额外复用现有敏感信息脱敏规则。
 

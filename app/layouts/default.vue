@@ -9,6 +9,7 @@ const items = computed(() => [
     to: '/jobs',
     active: route.path.startsWith('/jobs'),
   },
+  { label: '设置', icon: 'i-lucide-settings', to: '/settings', active: route.path === '/settings' },
 ])
 </script>
 <template>

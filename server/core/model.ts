@@ -1,3 +1,4 @@
+import { runtimeConfig } from './runtime-config'
 import { ChatOpenAI } from '@langchain/openai'
 import type { BaseMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
@@ -20,19 +21,19 @@ export interface ModelPort {
   ): Promise<BaseMessage>
 }
 export function configured() {
-  return !!(process.env.ROLELENS_API_KEY && process.env.ROLELENS_MODEL)
+  const config = runtimeConfig().resolve()
+  return !!(config.apiKey && config.model)
 }
 export function createModel(): ModelPort {
-  if (!configured())
-    throw new AppError(503, '请在本机 .env 配置 ROLELENS_API_KEY 与 ROLELENS_MODEL，然后重启应用。')
-  const protocol = process.env.ROLELENS_API_PROTOCOL || 'chat-completions'
-  if (!['chat-completions', 'responses'].includes(protocol))
-    throw new AppError(503, 'ROLELENS_API_PROTOCOL 必须为 chat-completions 或 responses。')
+  const config = runtimeConfig().resolve()
+  if (!config.apiKey || !config.model)
+    throw new AppError(503, '请在设置页面配置 API Key 与 Model。')
+  const protocol = config.protocol
   const model = new ChatOpenAI({
     useResponsesApi: protocol === 'responses',
-    apiKey: process.env.ROLELENS_API_KEY,
-    model: process.env.ROLELENS_MODEL,
-    configuration: { baseURL: process.env.ROLELENS_BASE_URL || 'https://api.openai.com/v1' },
+    apiKey: config.apiKey,
+    model: config.model,
+    configuration: { baseURL: config.baseUrl },
     maxRetries: 1,
     timeout: 90000,
   })

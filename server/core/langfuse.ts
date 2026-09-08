@@ -1,3 +1,4 @@
+import { runtimeConfig } from './runtime-config'
 import { CallbackHandler } from '@langfuse/langchain'
 import { LangfuseSpanProcessor } from '@langfuse/otel'
 import { NodeSDK } from '@opentelemetry/sdk-node'
@@ -13,7 +14,16 @@ type Runtime = { sdk: NodeSDK; processor: LangfuseSpanProcessor }
 let runtime: Runtime | undefined
 let unavailable = false
 
-export function isLangfuseEnabled(env: Environment = process.env) {
+export function isLangfuseEnabled(env?: Environment) {
+  if (!env) {
+    const config = runtimeConfig().resolve()
+    return (
+      config.langfuseEnabled &&
+      config.langfuseAvailable &&
+      !!config.langfusePublicKey &&
+      !!config.langfuseSecretKey
+    )
+  }
   return (
     env.ROLELENS_LANGFUSE_ENABLED === 'true' &&
     env.NODE_ENV === 'development' &&
@@ -62,10 +72,11 @@ export function maskTraceData(data: unknown, seen = new WeakSet<object>()): unkn
 function getRuntime() {
   if (runtime || unavailable) return runtime
   try {
+    const config = runtimeConfig().resolve()
     const processor = new LangfuseSpanProcessor({
-      publicKey: process.env.LANGFUSE_PUBLIC_KEY,
-      secretKey: process.env.LANGFUSE_SECRET_KEY,
-      baseUrl: process.env.LANGFUSE_BASE_URL || undefined,
+      publicKey: config.langfusePublicKey,
+      secretKey: config.langfuseSecretKey,
+      baseUrl: config.langfuseBaseUrl,
       environment: 'development',
       timeout: 2,
       mask: ({ data }) => maskTraceData(data),
@@ -80,7 +91,11 @@ function getRuntime() {
 }
 
 export const langfuseAgentTracer: AgentTracer = ({ sessionId, jobId }) => {
-  if (!isLangfuseEnabled()) return undefined
+  try {
+    if (!isLangfuseEnabled()) return undefined
+  } catch {
+    return undefined
+  }
   const active = getRuntime()
   if (!active) return undefined
   try {
