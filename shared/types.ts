@@ -98,6 +98,19 @@ export type Session = {
   error: string | null
   createdAt: string
 }
+export type JobListItem = Job & {
+  summary: {
+    state: 'unanalyzed' | 'running' | 'waiting' | 'generated' | 'failed' | 'restart'
+    generationCount: number
+    stale: boolean
+    analysis: null | {
+      requirementCount: number
+      evidenceCount: number
+      unlinkedCount: number
+      preview: { requirement: string; evidenceCount: number }[]
+    }
+  }
+}
 export type Trace = {
   id: number
   sessionId: string

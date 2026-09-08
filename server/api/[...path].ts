@@ -80,7 +80,7 @@ export default defineEventHandler(async (event) => {
       return await importDrafts(store, model, b.text, b.name, b.targetId)
     }
     if (parts[0] === 'jobs') {
-      if (method === 'GET' && !id) return store.jobs()
+      if (method === 'GET' && !id) return store.jobList()
       if (method === 'POST' && !id) return store.createJob(jobInput.parse(await body()))
       if (method === 'GET' && id)
         return {

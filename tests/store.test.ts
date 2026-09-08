@@ -37,6 +37,66 @@ test('drafts require confirmation; confirmation is atomic and rejects duplicate'
   expect(() => s.confirm(d.id, input)).toThrow('草稿已处理')
   expect(s.eligible()).toHaveLength(1)
 })
+
+test('job summaries follow persisted workflow and count unique analysis references', () => {
+  const s = setup(),
+    f = fact(s)
+  const job = s.createJob({ title: '前端', company: '测试', jd: 'Vue' })
+  const summary = () => s.jobList().find((j) => j.id === job.id)!.summary
+  expect(summary()).toMatchObject({ state: 'unanalyzed', analysis: null, generationCount: 0 })
+  const session = s.createSession(job.id)
+  expect(summary().state).toBe('unanalyzed')
+  const analysis = {
+    requirements: [
+      { requirement: 'Vue', factIds: [f.id], assessment: '关联经历' },
+      { requirement: 'TypeScript', factIds: [f.id], assessment: '关联同一经历' },
+      { requirement: '部署经验', factIds: [], assessment: '暂无依据' },
+    ],
+    questions: ['补充部署经验？'],
+  }
+  s.setSession(session.id, 'running', analysis)
+  expect(summary()).toMatchObject({
+    state: 'running',
+    analysis: { requirementCount: 3, evidenceCount: 1, unlinkedCount: 1 },
+  })
+  expect(summary().analysis?.preview).toHaveLength(2)
+  s.setSession(session.id, 'waiting')
+  expect(summary().state).toBe('waiting')
+  s.setSession(session.id, 'failed')
+  expect(summary().state).toBe('failed')
+  const generation = s.save(session.id, {
+    headline: '前端',
+    sections: [{ title: '经历', items: [{ text: f.content, factIds: [f.id] }] }],
+    greetings: (['简洁直接', '项目匹配', '自然交流'] as const).map((style) => ({
+      style,
+      text: '你好',
+      factIds: [f.id],
+    })),
+  })
+  s.setSession(session.id, 'complete')
+  expect(summary()).toMatchObject({ state: 'generated', generationCount: 1, stale: false })
+  s.update(f.id, { ...input, content: '资料发生更新' }, f.version)
+  expect(summary()).toMatchObject({ state: 'generated', stale: true })
+  s.deleteGeneration(generation.id)
+  expect(summary()).toMatchObject({ state: 'restart', generationCount: 0 })
+})
+
+test('a newer failed session is not masked by historical generations, including timestamp ties', () => {
+  const s = setup()
+  const job = s.createJob({ title: '前端', company: '测试', jd: 'Vue' })
+  const first = s.createSession(job.id)
+  s.save(first.id, { headline: '历史版本', sections: [], greetings: [] })
+  s.setSession(first.id, 'complete')
+  const latest = s.createSession(job.id)
+  s.db.prepare('UPDATE sessions SET createdAt=? WHERE jobId=?').run(first.createdAt, job.id)
+  s.setSession(latest.id, 'failed')
+  expect(s.sessions(job.id)[0]?.id).toBe(latest.id)
+  expect(s.jobList()[0]?.summary).toMatchObject({
+    state: 'failed',
+    generationCount: 1,
+    analysis: null,
+  })
+})
 test('stale edits and stale draft confirmation cannot overwrite newer facts', () => {
   const s = setup(),
     f = fact(s),

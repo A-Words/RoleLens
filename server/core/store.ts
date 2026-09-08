@@ -9,6 +9,7 @@ import type {
   FactInput,
   Generation,
   Job,
+  JobListItem,
   Resume,
   Session,
   Source,
@@ -183,6 +184,72 @@ export class Store {
   jobs() {
     return this.db.prepare('SELECT * FROM jobs ORDER BY createdAt DESC').all() as Job[]
   }
+  jobList(): JobListItem[] {
+    const revision = this.revision()
+    const rows = this.db
+      .prepare(
+        `
+      SELECT j.*, s.status AS sessionStatus, s.revision AS sessionRevision, s.analysis,
+        (SELECT COUNT(*) FROM generations g WHERE g.jobId=j.id) AS generationCount,
+        (SELECT COUNT(*) FROM generations g WHERE g.sessionId=s.id) AS latestGenerationCount
+      FROM jobs j
+      LEFT JOIN sessions s ON s.id=(
+        SELECT id FROM sessions WHERE jobId=j.id ORDER BY createdAt DESC, rowid DESC LIMIT 1
+      )
+      ORDER BY j.createdAt DESC, j.rowid DESC
+    `,
+      )
+      .all() as (Job & {
+      sessionStatus: string | null
+      sessionRevision: number | null
+      analysis: string | null
+      generationCount: number
+      latestGenerationCount: number
+    })[]
+    return rows.map(
+      ({
+        sessionStatus,
+        sessionRevision,
+        analysis: rawAnalysis,
+        generationCount,
+        latestGenerationCount,
+        ...job
+      }) => {
+        const analysis = rawAnalysis ? (JSON.parse(rawAnalysis) as Analysis | null) : null
+        const state: JobListItem['summary']['state'] =
+          sessionStatus === 'running'
+            ? 'running'
+            : sessionStatus === 'waiting'
+              ? 'waiting'
+              : sessionStatus === 'failed'
+                ? 'failed'
+                : latestGenerationCount > 0
+                  ? 'generated'
+                  : sessionStatus === 'complete'
+                    ? 'restart'
+                    : 'unanalyzed'
+        return {
+          ...job,
+          summary: {
+            state,
+            generationCount,
+            stale: sessionRevision !== null && sessionRevision !== revision,
+            analysis: analysis
+              ? {
+                  requirementCount: analysis.requirements.length,
+                  evidenceCount: new Set(analysis.requirements.flatMap((r) => r.factIds)).size,
+                  unlinkedCount: analysis.requirements.filter((r) => !r.factIds.length).length,
+                  preview: analysis.requirements.slice(0, 2).map((r) => ({
+                    requirement: r.requirement,
+                    evidenceCount: new Set(r.factIds).size,
+                  })),
+                }
+              : null,
+          },
+        }
+      },
+    )
+  }
   job(id: string) {
     const j = this.jobs().find((j) => j.id === id)
     if (!j) throw new AppError(404, '职位不存在')
@@ -226,7 +293,7 @@ export class Store {
   sessions(jobId: string) {
     return (
       this.db
-        .prepare('SELECT id FROM sessions WHERE jobId=? ORDER BY createdAt DESC')
+        .prepare('SELECT id FROM sessions WHERE jobId=? ORDER BY createdAt DESC, rowid DESC')
         .all(jobId) as { id: string }[]
     ).map((s) => this.session(s.id))
   }
