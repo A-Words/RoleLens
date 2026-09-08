@@ -42,10 +42,17 @@ export const jobInput = z.object({
   jd: z.string().trim().min(10).max(30000),
 })
 export type Job = z.infer<typeof jobInput> & { id: string; createdAt: string }
+export const supportSchema = z.enum(['supported', 'partial', 'unsupported', 'clarification'])
 export const analysisSchema = z.object({
   requirements: z
     .array(
-      z.object({ requirement: z.string(), factIds: z.array(z.string()), assessment: z.string() }),
+      z.object({
+        requirement: z.string(),
+        factIds: z.array(z.string()),
+        assessment: z.string(),
+        support: supportSchema.optional(),
+        clarification: z.string().optional(),
+      }),
     )
     .max(20),
   questions: z.array(z.string()).max(5),

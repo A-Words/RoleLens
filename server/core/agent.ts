@@ -19,6 +19,7 @@ import { z } from 'zod'
 import { OutputParserException } from '@langchain/core/output_parsers'
 import {
   analysisSchema,
+  supportSchema,
   resumeSchema,
   type Analysis,
   type Fact,
@@ -139,6 +140,8 @@ export function createAgent(
         requirements: z
           .array(
             analysisSchema.shape.requirements.element.extend({
+              support: supportSchema,
+              clarification: z.string(),
               factIds: z.array(z.enum(facts.map((f) => f.id) as [string, ...string[]])),
             }),
           )
@@ -155,6 +158,15 @@ export function createAgent(
           analysis = await model.structured(referenceSchema, 'assess_match', input, config)
           if (analysis.requirements.some((r) => r.factIds.some((id) => !ids.has(id))))
             throw new AppError(422, '岗位分析引用了未知事实')
+          if (
+            analysis.requirements.some(
+              (r) =>
+                ((r.support === 'supported' || r.support === 'partial') && !r.factIds.length) ||
+                (r.support === 'unsupported' && r.factIds.length > 0) ||
+                (r.support === 'clarification' && !r.clarification?.trim()),
+            )
+          )
+            throw new AppError(422, '要求支持状态与依据或澄清问题不一致')
           break
         } catch (e) {
           // Only repair invalid structured output; transport/authentication errors must propagate.

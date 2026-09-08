@@ -2,10 +2,11 @@ import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import { resumeText } from '../../shared/resume-text'
 import type { Resume } from '../../shared/types'
 
 const escape = (s: string) =>
-  s.replace(
+  resumeText(s).replace(
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   )

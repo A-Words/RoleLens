@@ -261,12 +261,23 @@ test('optional agent tracing config reaches model calls and flushes independentl
   expect(tracer).toHaveBeenCalledWith({ sessionId: session.id, jobId: job.id })
   expect(model.configs.filter(Boolean).length).toBeGreaterThan(0)
   expect(
-    model.configs.filter(Boolean).every(
-      (config) =>
-        !!config?.callbacks &&
-        config.metadata?.rolelensSessionId === 'session' &&
-        config.metadata?.rolelensJobId === job.id,
-    ),
+    model.configs
+      .filter(Boolean)
+      .every(
+        (config) =>
+          !!config?.callbacks &&
+          config.metadata?.rolelensSessionId === 'session' &&
+          config.metadata?.rolelensJobId === job.id,
+      ),
   ).toBe(true)
   expect(finish).toHaveBeenCalledOnce()
+})
+
+test('contradictory support judgment is repaired before storing analysis', async () => {
+  const { store, job, model } = setup()
+  model.invalidSupportCount = 1
+  const session = store.createSession(job.id)
+  await createAgent(store, model).run(session.id)
+  expect(model.seen.filter((s) => s.stage === 'assess_match')).toHaveLength(2)
+  expect(store.session(session.id).analysis?.requirements[0]?.support).toBe('partial')
 })

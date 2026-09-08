@@ -11,6 +11,7 @@ export class FakeModel implements ModelPort {
   failOnce = false
   unsupported = false
   invalidAnalysisCount = 0
+  invalidSupportCount = 0
   invalidGenerationCount = 0
   parserFailure = false
   seen: { stage: string; data: unknown }[] = []
@@ -52,6 +53,8 @@ export class FakeModel implements ModelPort {
         requirements: [
           {
             requirement: '相关项目经验',
+            support: this.invalidSupportCount-- > 0 ? 'unsupported' : 'partial',
+            clarification: '',
             factIds: this.invalidAnalysisCount-- > 0 ? ['invented'] : d.facts.map((f) => f.id),
             assessment: '有已确认的实现经历，效果指标尚未提供。',
           },
@@ -83,11 +86,7 @@ export class FakeModel implements ModelPort {
     else throw new Error(`Unknown stage ${stage}`)
     return schema.parse(result)
   }
-  async call(
-    messages: BaseMessage[],
-    _tools?: StructuredToolInterface[],
-    config?: RunnableConfig,
-  ) {
+  async call(messages: BaseMessage[], _tools?: StructuredToolInterface[], config?: RunnableConfig) {
     this.configs.push(config)
     if (!messages.some((m) => m.type === 'tool')) {
       const query = JSON.parse(String(messages.at(-1)!.content)).keywords[0]

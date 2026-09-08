@@ -52,6 +52,8 @@ const server = createServer(async (req, res) => {
         requirements: [
           {
             requirement: '相关技术与项目经验',
+            support: 'partial',
+            clarification: '',
             factIds: data.facts.map((f) => f.id),
             assessment: '具备对应实现经历，效果指标尚未确认。',
           },

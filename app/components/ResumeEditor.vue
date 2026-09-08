@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resumeText } from '#shared/resume-text'
 import { resumeSchema, type Fact, type Generation, type Resume } from '#shared/types'
 const props = defineProps<{ generation: Generation; facts: Fact[]; busy?: boolean }>()
 const emit = defineEmits<{
@@ -23,7 +24,7 @@ const label = (id: string) =>
 const contacts = computed(() => props.facts.filter((f) => f.category === 'contact' && f.enabled))
 async function copy(text: string, style: string) {
   try {
-    await navigator.clipboard.writeText(text)
+    await navigator.clipboard.writeText(resumeText(text))
     copied.value = style
     copyError.value = ''
   } catch {
@@ -39,14 +40,14 @@ async function copy(text: string, style: string) {
     class="space-y-6"
     @submit="emit('save', $event.data, generation.version)"
   >
-    <UCard>
+    <UCard id="resume" tabindex="-1" class="scroll-mt-4">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="font-semibold text-highlighted">定制简历</h2>
           <UBadge
             :color="generation.edited ? 'warning' : 'success'"
             variant="subtle"
-            :label="generation.edited ? '已手动编辑 · 请自行核对' : '已通过模型事实核验 · 请审阅'"
+            :label="generation.edited ? '已手动编辑 · 请自行核对' : '自动事实核验通过 · 请人工审阅'"
           />
         </div>
       </template>
@@ -90,20 +91,27 @@ async function copy(text: string, style: string) {
         description="下载使用已保存版本。手动修改不会再次经过模型核验，也不会改变原始档案。"
         class="mb-6"
       />
-      <div class="space-y-6 rounded-lg border border-default bg-default p-5 sm:p-8">
+      <div
+        data-testid="resume-body"
+        class="space-y-6 rounded-lg border border-default bg-default p-5 sm:p-8"
+      >
         <UFormField v-if="editing" name="headline" label="简历标题" required
           ><UInput v-model="content.headline" class="w-full" maxlength="180"
         /></UFormField>
-        <h3 v-else class="text-xl font-semibold tracking-tight">{{ content.headline }}</h3>
+        <h3 v-else class="text-xl font-semibold tracking-tight">
+          {{ resumeText(content.headline) }}
+        </h3>
         <div v-if="contacts.length" class="space-y-1">
-          <p v-for="c in contacts" :key="c.id" class="text-sm text-muted">{{ c.content }}</p>
+          <p v-for="c in contacts" :key="c.id" class="text-sm text-muted">
+            {{ resumeText(c.content) }}
+          </p>
         </div>
         <section v-for="(section, si) in content.sections" :key="si" class="space-y-4">
           <UFormField v-if="editing" :name="'sections.' + si + '.title'" label="章节标题" required
             ><UInput v-model="section.title" class="w-full" maxlength="80"
           /></UFormField>
           <h4 v-else class="border-b border-default pb-2 font-semibold text-highlighted">
-            {{ section.title }}
+            {{ resumeText(section.title) }}
           </h4>
           <div v-for="(item, ii) in section.items" :key="ii" class="space-y-2">
             <UFormField
@@ -113,23 +121,52 @@ async function copy(text: string, style: string) {
               required
               ><UTextarea v-model="item.text" class="w-full" :rows="4" maxlength="1500"
             /></UFormField>
-            <p v-else class="whitespace-pre-wrap break-words text-sm leading-7">{{ item.text }}</p>
-            <div class="flex flex-wrap gap-1">
-              <UButton
-                v-for="id in item.factIds"
-                :key="id"
-                :label="label(id)"
-                icon="i-lucide-link"
-                size="xs"
-                variant="soft"
-                @click="emit('source', id)"
-              />
-            </div>
+            <p v-else class="whitespace-pre-wrap break-words text-sm leading-7">
+              {{ resumeText(item.text) }}
+            </p>
           </div>
         </section>
       </div>
+      <UAccordion class="mt-4" :items="[{ label: '查看简历依据', icon: 'i-lucide-link' }]">
+        <template #body>
+          <p class="mb-3 text-xs text-muted">来源仅供审阅，不属于简历正文，也不会写入 PDF。</p>
+          <div class="space-y-4">
+            <div v-if="contacts.length" class="space-y-2">
+              <p class="text-xs text-muted">联系方式 · 当前资料</p>
+              <div class="flex flex-wrap gap-1">
+                <UButton
+                  v-for="contact in contacts"
+                  :key="contact.id"
+                  :label="contact.title"
+                  size="xs"
+                  color="neutral"
+                  variant="soft"
+                  @click="emit('source', contact.id)"
+                />
+              </div>
+            </div>
+            <template v-for="(section, si) in content.sections" :key="si">
+              <div v-for="(item, ii) in section.items" :key="ii" class="space-y-2">
+                <p class="text-xs text-muted">{{ section.title }} · 条目 {{ ii + 1 }}</p>
+                <div class="flex flex-wrap gap-1">
+                  <UButton
+                    v-for="id in item.factIds"
+                    :key="id"
+                    :label="label(id)"
+                    icon="i-lucide-link"
+                    size="xs"
+                    color="neutral"
+                    variant="soft"
+                    @click="emit('source', id)"
+                  />
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </UAccordion>
     </UCard>
-    <UCard>
+    <UCard id="greetings" tabindex="-1" class="scroll-mt-4">
       <template #header
         ><div class="flex items-center gap-2">
           <UIcon name="i-lucide-messages-square" class="size-5 text-primary" />
@@ -161,7 +198,7 @@ async function copy(text: string, style: string) {
             required
             ><UTextarea v-model="g.text" class="w-full" maxlength="150" :rows="3"
           /></UFormField>
-          <p v-else class="text-sm leading-7">{{ g.text }}</p>
+          <p v-else class="text-sm leading-7">{{ resumeText(g.text) }}</p>
           <div class="flex flex-wrap items-center gap-2">
             <UButton
               v-for="id in g.factIds"

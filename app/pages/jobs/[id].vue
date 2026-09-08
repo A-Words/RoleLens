@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Fact, Job, Session, Generation, Trace, Resume, Source } from '#shared/types'
 import { verificationIssues } from '#shared/verification'
+import { requirementState } from '#shared/matching'
 const route = useRoute(),
   jobId = String(route.params.id)
 const { data, refresh } = await useFetch<{
@@ -21,6 +22,56 @@ const session = ref<Session | null>(data.value.sessions[0] || null),
 const generation = computed(() =>
   data.value?.generations.find((g) => g.id === selectedGeneration.value),
 )
+const analysisEvidence = computed(
+  () => data.value?.generations.find((g) => g.sessionId === session.value?.id)?.evidence ?? [],
+)
+const evidenceFact = (id: string) =>
+  analysisEvidence.value.find((f) => f.id === id) ?? facts.value?.find((f) => f.id === id)
+const requirementCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const r of session.value?.analysis?.requirements ?? []) {
+    const label = requirementState(r).label
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  return [...counts].map(([label, count]) => ({ label, count }))
+})
+const activeAnchor = ref('overview')
+const anchors = computed(() => [
+  { id: 'overview', label: '概览', disabled: false },
+  { id: 'matching', label: '匹配与依据', disabled: !session.value?.analysis },
+  { id: 'resume', label: '定制简历', disabled: !generation.value },
+  { id: 'greetings', label: '打招呼语', disabled: !generation.value },
+  { id: 'inspector', label: '分析对话', disabled: false },
+])
+let scrollRoot: Element | null = null
+function updateAnchor() {
+  if (!scrollRoot) return
+  const top = scrollRoot.getBoundingClientRect().top + 48
+  const sections = anchors.value.filter((a) => !a.disabled && a.id !== 'inspector')
+  activeAnchor.value =
+    [...sections]
+      .reverse()
+      .find((a) => (document.getElementById(a.id)?.getBoundingClientRect().top ?? Infinity) <= top)
+      ?.id ?? 'overview'
+}
+function jumpTo(id: string) {
+  const target = document.getElementById(id)
+  target?.scrollIntoView({ block: 'start', behavior: 'instant' })
+  target?.focus({ preventScroll: true })
+  activeAnchor.value = id
+}
+onMounted(async () => {
+  await nextTick()
+  scrollRoot = document.getElementById('overview')?.closest('[data-slot="body"]') ?? null
+  scrollRoot?.addEventListener('scroll', updateAnchor, { passive: true })
+  const hash = route.hash.slice(1)
+  if (anchors.value.some((a) => a.id === hash && !a.disabled)) jumpTo(hash)
+})
+onUnmounted(() => scrollRoot?.removeEventListener('scroll', updateAnchor))
+watch(anchors, async () => {
+  await nextTick()
+  updateAnchor()
+})
 const correctionIssues = computed(() =>
   session.value?.error?.includes('事实核验')
     ? verificationIssues(traces.value).map((issue) =>
@@ -97,22 +148,24 @@ function remove() {
 }
 function viewFact(id: string) {
   return act(async () => {
-    const f = facts.value?.find((f) => f.id === id)
+    const f = evidenceFact(id)
     if (!f) throw new Error('该资料已删除，请重新分析。旧简历仍保留生成时的依据。')
     source.value = {
       id: f.sourceId,
-      name: `${f.title} · v${f.version}`,
+      name: `${f.title} · v${f.version} · ${analysisEvidence.value.some((e) => e.id === id) ? '生成时快照' : '当前资料'}`,
       text: f.content,
       createdAt: f.updatedAt,
     }
   })
 }
 function viewEvidence(id: string) {
-  const f = generation.value?.evidence.find((f) => f.id === id)
+  const snapshot = generation.value?.evidence.find((f) => f.id === id)
+  const f =
+    snapshot ?? facts.value?.find((f) => f.id === id && f.category === 'contact' && f.enabled)
   if (f)
     source.value = {
       id: f.sourceId,
-      name: `${f.title} · v${f.version} · 生成时的确认事实`,
+      name: `${f.title} · v${f.version} · ${snapshot ? '生成时的确认事实' : '当前联系方式'}`,
       text: f.content,
       createdAt: f.updatedAt,
     }
@@ -174,7 +227,29 @@ const statusColor = computed(() =>
 )
 </script>
 <template>
-  <WorkspacePage :title="data?.job.title || '职位详情'" :description="data?.job.company" back>
+  <WorkspacePage
+    :title="data?.job.title || '职位详情'"
+    :description="data?.job.company"
+    back
+    simple-header
+  >
+    <template #toolbar>
+      <nav aria-label="职位详情定位" class="flex items-center gap-1">
+        <UButton
+          v-for="anchor in anchors"
+          :key="anchor.id"
+          :aria-controls="anchor.id"
+          :label="anchor.label"
+          :disabled="anchor.disabled"
+          color="neutral"
+          :variant="activeAnchor === anchor.id ? 'soft' : 'ghost'"
+          :aria-current="activeAnchor === anchor.id ? 'location' : undefined"
+          size="sm"
+          class="whitespace-nowrap"
+          @click="jumpTo(anchor.id)"
+        />
+      </nav>
+    </template>
     <template #actions
       ><UButton
         :label="data?.sessions.length ? '重新分析' : '开始分析'"
@@ -185,44 +260,74 @@ const statusColor = computed(() =>
     <UAlert v-if="error" color="error" title="操作未完成" :description="error" role="alert" />
     <div class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div class="min-w-0 space-y-6">
-        <UAccordion
-          :items="[
-            { label: '查看职位描述（JD）', content: data?.job.jd, icon: 'i-lucide-file-text' },
-          ]"
-          :ui="{ body: 'whitespace-pre-wrap text-sm leading-7 text-toned' }"
-        />
-        <UCard v-if="session?.analysis">
+        <section id="overview" tabindex="-1" aria-label="职位概览" class="scroll-mt-4">
+          <UAccordion
+            :items="[
+              { label: '查看职位描述（JD）', content: data?.job.jd, icon: 'i-lucide-file-text' },
+            ]"
+            :ui="{ body: 'whitespace-pre-wrap text-sm leading-7 text-toned' }"
+          />
+        </section>
+        <UCard v-if="session?.analysis" id="matching" tabindex="-1" class="scroll-mt-4">
           <template #header
             ><div class="flex items-center gap-2">
               <UIcon name="i-lucide-list-checks" class="size-5 text-primary" />
               <h2 class="font-semibold">岗位匹配与依据</h2>
             </div></template
           >
+          <p class="mb-3 text-xs leading-6 text-muted">
+            以下为自动评估，请人工审阅。关联事实不等于完整支持；无依据仅表示本次检索未找到。
+          </p>
+          <div class="mb-4 flex flex-wrap gap-2">
+            <UBadge
+              v-for="item in requirementCounts"
+              :key="item.label"
+              color="neutral"
+              variant="soft"
+              :label="`${item.label} ${item.count}`"
+            />
+          </div>
           <div class="divide-y divide-default">
             <article
               v-for="(r, i) in session.analysis.requirements"
               :key="i"
               class="space-y-3 py-5 first:pt-0 last:pb-0"
             >
-              <h3 class="text-sm font-medium">{{ r.requirement }}</h3>
-              <p class="text-sm leading-6 text-muted">{{ r.assessment }}</p>
-              <UBadge
-                v-if="!r.factIds.length"
-                color="warning"
-                variant="subtle"
-                label="暂无已确认依据"
-              />
-              <div v-else class="flex flex-wrap gap-2">
-                <UButton
-                  v-for="id in r.factIds"
-                  :key="id"
-                  :label="facts?.find((f) => f.id === id)?.title || '历史事实'"
-                  icon="i-lucide-link"
-                  size="xs"
+              <div class="flex flex-wrap items-start justify-between gap-2">
+                <h3 class="min-w-0 flex-1 text-sm font-medium">
+                  <span class="mr-2 text-xs text-muted">R{{ i + 1 }}</span
+                  >{{ r.requirement }}
+                </h3>
+                <UBadge
+                  :label="requirementState(r).label"
+                  :color="requirementState(r).color"
                   variant="soft"
-                  @click="viewFact(id)"
                 />
               </div>
+              <div class="space-y-2 border-l-2 border-default pl-4">
+                <p class="text-xs text-muted">Evidence · 关联依据</p>
+                <UBadge
+                  v-if="!r.factIds.length"
+                  color="warning"
+                  variant="subtle"
+                  label="暂无已确认依据"
+                />
+                <div v-else class="flex flex-wrap gap-2">
+                  <UButton
+                    v-for="id in r.factIds"
+                    :key="id"
+                    :label="evidenceFact(id)?.title || '依据已不可用'"
+                    icon="i-lucide-link"
+                    size="xs"
+                    variant="soft"
+                    @click="viewFact(id)"
+                  />
+                </div>
+              </div>
+              <p class="text-sm leading-6 text-muted">{{ r.assessment }}</p>
+              <p v-if="r.clarification" class="text-sm leading-6 text-toned">
+                <span class="font-medium">待澄清：</span>{{ r.clarification }}
+              </p>
             </article>
           </div>
         </UCard>
@@ -256,7 +361,12 @@ const statusColor = computed(() =>
           variant="subtle"
         />
       </div>
-      <div class="min-w-0 space-y-6">
+      <aside
+        id="inspector"
+        tabindex="-1"
+        aria-label="分析会话与执行记录"
+        class="min-w-0 space-y-6 scroll-mt-4 xl:sticky xl:top-0 xl:max-h-[calc(100dvh-var(--ui-header-height)-5rem)] xl:overflow-y-auto xl:overscroll-contain"
+      >
         <UCard :ui="{ root: 'bg-elevated/30' }">
           <template #header
             ><div class="flex items-center justify-between">
@@ -380,7 +490,7 @@ const statusColor = computed(() =>
             />
           </template>
         </UAccordion>
-      </div>
+      </aside>
     </div>
   </WorkspacePage>
   <USlideover

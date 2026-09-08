@@ -47,7 +47,7 @@ test('PDF includes searchable Chinese, escapes HTML and paginates long content w
   const html = resumeHtml({ ...resume, headline: '<script>bad()</script>' })
   expect(html).not.toContain('<script>bad')
   expect(html).toContain('&lt;script&gt;')
-  const bytes = await exportPdf(resume, ['候选人 · example@example.com'])
+  const bytes = await exportPdf(resume, ['事实：候选人 · example@example.com'])
   const parser = new PDFParse({ data: bytes })
   try {
     const result = await parser.getText()
@@ -55,6 +55,7 @@ test('PDF includes searchable Chinese, escapes HTML and paginates long content w
     expect(result.text).toContain('经历28')
     expect(result.text).toContain('前端开发工程师')
     expect(result.text).toContain('example@example.com')
+    expect(result.text).not.toContain('事实：')
     expect(await extractText('resume.pdf', bytes)).toContain('资料工作台')
   } finally {
     await parser.destroy()
